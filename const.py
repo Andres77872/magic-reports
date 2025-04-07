@@ -34,7 +34,6 @@ Output:
 Now, based strictly on the provided user's last query, generate the appropriate JSON array of queries, or an empty array if not required.
 """.strip()
 
-
 prompt_system_llm = """
 You are a helpful assistant tasked with creating a detailed yet concise report. 
 Your response must use information provided in paper page images when needed. 
@@ -47,4 +46,89 @@ prompt_colpali_content = """
 Use information from this paper page as necessary. 
 When citing this source, reference clearly as:\n
 Paper ID: {{id}}, Title: '{{title}}', Page: {{page}}, URL: {{url}}
-"""
+""".strip()
+
+helper_prompt_configuration_jinja2 = """
+Here you will find useful keys available for creating custom prompts in **Jinja2 syntax**.
+
+### 🗨️ Chat Context Keys (`user_prompt_template`):
+
+- `{{ prev_chat }}`:
+    - **Type:** String (multiline)
+    - **Description:** Recent conversation history between user and assistant. Useful when rephrasing prompts or ensuring continuity.
+
+### 📚 Colpali Paper Data Keys (`colpali_prompt_template`):
+
+Each paper retrieved from Colpali provides the following fields:
+
+- `{{ page }}`:
+    - **Type:** Integer
+    - **Description:** Page number from the retrieved Arxiv paper.
+
+- `{{ id }}`:
+    - **Type:** String
+    - **Description:** Unique Arxiv identifier (e.g., "2403.05544").
+
+- `{{ doi }}`:
+    - **Type:** String or null
+    - **Description:** Digital Object Identifier of the paper, if available.
+
+- `{{ date }}`:
+    - **Type:** String
+    - **Description:** Formal publication date (e.g., "Mon, 5 Feb 2024 16:12:14 GMT").
+
+- `{{ title }}`:
+    - **Type:** String
+    - **Description:** Full title of the Arxiv paper.
+
+- `{{ authors }}`:
+    - **Type:** String
+    - **Description:** List of authors of the paper.
+
+- `{{ abstract }}`:
+    - **Type:** String
+    - **Description:** Abstract summary provided by the authors.
+
+- `{{ url }}`:
+    - **Type:** String (URL)
+    - **Description:** Direct URL link to the paper on Arxiv.
+
+- `{{ version }}`:
+    - **Type:** String
+    - **Description:** Version number of this paper.
+
+- `{{ page_image }}`:
+    - **Type:** String (URL)
+    - **Description:** Direct URL link to the page image retrieved from Colpali.
+
+### ✨ Example dictionary from a Colpali retrieval result:
+
+```json
+{
+  "page": 1,
+  "id": "2403.05544",
+  "doi": null,
+  "date": "Mon, 5 Feb 2024 16:12:14 GMT",
+  "title": "From Algorithm Worship to the Art of Human Learning: Insights from 50-year journey of AI in Education",
+  "authors": "Kaska Porayska-Pomsta",
+  "abstract": "Current discourse surrounding Artificial Intelligence (AI)...",
+  "url": "https://arxiv.org/abs/2403.05544",
+  "version": "1",
+  "page_image": "https://llm.arz.ai/rag/colpali/arxiv/2403.05544v1_p_1.png"
+}
+```
+
+### 💡 Usage examples in your templates:
+
+```jinja
+Please provide a summary of the following paper titled "{{ title }}", authored by {{ authors }}. 
+
+Abstract:
+{{ abstract }}
+
+Published on: {{ date }}
+Link to paper: [{{ url }}]({{ url }})
+```
+
+These keys help you to dynamically render templates and present paper information clearly to the AI assistant, enhancing context-awareness and response quality.
+""".strip()

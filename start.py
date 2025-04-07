@@ -7,7 +7,7 @@ from jinja2 import Template
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
 
-from const import prompt_query_build, prompt_system_llm, prompt_colpali_content
+from const import prompt_query_build, prompt_system_llm, prompt_colpali_content, helper_prompt_configuration_jinja2
 from utils import fetch_and_encode_image
 
 st.set_page_config(
@@ -27,11 +27,6 @@ with st.sidebar:
         type="password"
     )
 
-    st.markdown("## 📝 Prompt Configuration (Jinja2 syntax)")
-    user_prompt_template = st.text_area("Query rewriter for search", prompt_query_build, height=250)
-    system_prompt_template = st.text_area("Agent system prompt", prompt_system_llm, height=250)
-    colpali_prompt_template = st.text_area("Colpali context prompt", prompt_colpali_content, height=250)
-
     st.markdown("---")
     st.markdown("### 📚 Resources")
     st.markdown("""
@@ -50,6 +45,53 @@ st.markdown(
     "Currently, this is a proof-of-concept focusing on single-turn chats, with conversational enhancements planned for the future. "
     "The Colpali index is independently maintained."
 )
+
+st.markdown("## 📝 Prompt Configuration (Jinja2 syntax)")
+
+with st.expander("📖 Show detailed Jinja2 keys reference", expanded=False):
+    st.markdown(helper_prompt_configuration_jinja2)
+
+col1, col2, col3 = st.columns(3, gap="medium")
+
+with col1:
+    with st.expander("#### 🔎 Search Query Prompt", expanded=False):
+        user_prompt_template = st.text_area(
+            "Prompt to rewrite user query into targeted retrieval queries",
+            value=prompt_query_build,
+            height=280,
+            help="Use variables like `{{ prev_chat }}` to dynamically inject recent conversation context."
+        )
+
+with col2:
+    with st.expander("#### 🤖 LLM System Prompt", expanded=False):
+        system_prompt_template = st.text_area(
+            "System-level instructions for the AI assistant",
+            value=prompt_system_llm,
+            height=280,
+            help="Provide overarching instructions for assistant behavior. Example: 'You are an assistant specialized in summarizing scientific papers from Arxiv.'"
+        )
+
+with col3:
+    with st.expander("#### 📑 Colpali Context Prompt", expanded=False):
+        colpali_prompt_template = st.text_area(
+            "Prompt guiding how paper content is presented to the LLM",
+            value=prompt_colpali_content,
+            height=280,
+            help=(
+                "You can use the following keys from the paper context dictionary:\n\n"
+                "- `{{ page }}`: Page number of the retrieved content.\n"
+                "- `{{ id }}`: Arxiv paper identifier.\n"
+                "- `{{ doi }}`: DOI of paper (if available, can be null).\n"
+                "- `{{ date }}`: Publication date.\n"
+                "- `{{ title }}`: Paper title.\n"
+                "- `{{ authors }}`: Paper authors.\n"
+                "- `{{ abstract }}`: Paper abstract.\n"
+                "- `{{ url }}`: URL to the original Arxiv paper.\n"
+                "- `{{ version }}`: Paper version number.\n"
+                "- `{{ page_image }}`: URL of the retrieved page image.\n\n"
+                "These keys can enrich your prompt templates to effectively present paper information to the LLM."
+            )
+        )
 
 # Session state initialization
 if "messages" not in st.session_state:
