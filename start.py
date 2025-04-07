@@ -7,7 +7,11 @@ from jinja2 import Template
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
 
-from const import prompt_query_build, prompt_system_llm, prompt_colpali_content, helper_prompt_configuration_jinja2
+from const import (prompt_query_build,
+                   prompt_system_llm,
+                   prompt_colpali_content,
+                   helper_prompt_configuration_jinja2,
+                   model_choices)
 from utils import fetch_and_encode_image
 
 st.set_page_config(
@@ -18,14 +22,111 @@ st.set_page_config(
 )
 
 # Sidebar UI enhancements
+# Sidebar UI enhancements
 with st.sidebar:
-    st.image("https://streamlit.io/images/brand/streamlit-logo-primary-colormark-darktext.png",
-             use_container_width=True)
-    st.markdown("## 🔑 API Configuration")
+    st.image(
+        "https://streamlit.io/images/brand/streamlit-logo-primary-colormark-darktext.png",
+        use_container_width=True
+    )
     openai_api_key = st.text_input(
         "Magic-LLM API Key (optional)",
         type="password"
     )
+
+    st.markdown("---")
+    st.markdown("## ⚙️ Configuration")
+
+    selected_model = st.selectbox(
+        "🤖 Select Model",
+        list(model_choices.keys()),
+        index=0,
+        help="Choose the LLM model to generate responses."
+    )
+
+    with st.expander("## 🔑 LLM Configuration", expanded=False):
+        st.markdown("## 🛠️ Generation Settings")
+
+        temperature = st.slider(
+            "🌡️ Temperature",
+            min_value=0.0,
+            max_value=2.0,
+            value=1.0,
+            step=0.01,
+            help="Control randomness of the generated text. Lower values produce more deterministic output."
+        )
+
+        top_p = st.slider(
+            "📈 Top-P (nucleus sampling)",
+            min_value=0.0,
+            max_value=1.0,
+            value=1.0,
+            step=0.01,
+            help="Set probability threshold for nucleus sampling. Lower values focus on likely words only."
+        )
+
+        max_tokens = st.number_input(
+            "📝 Maximum new tokens",
+            min_value=1,
+            max_value=8192,
+            value=4096,
+            step=1,
+            help="Maximum length of the generated response (max tokens)."
+        )
+
+        presence_penalty = st.slider(
+            "👤 Presence penalty",
+            min_value=-2.0,
+            max_value=2.0,
+            value=0.0,
+            step=0.01,
+            help="Positive values penalize new token inclusion based on whether they appeared already."
+        )
+
+        frequency_penalty = st.slider(
+            "🔄 Frequency penalty",
+            min_value=-2.0,
+            max_value=2.0,
+            value=0.0,
+            step=0.01,
+            help="Penalize frequent usage of same tokens. Higher values encourage diversity."
+        )
+
+        repetition_penalty = st.slider(
+            "♻️ Repetition penalty",
+            min_value=0.5,
+            max_value=2.0,
+            value=1.0,
+            step=0.01,
+            help="Penalize repetition. Values >1 make repetitions less likely, values <1 more likely."
+        )
+
+    with st.expander("🔍 **Colpali Search Parameters**", expanded=False):
+        query_rewrite_count = st.slider(
+            "📝 Query Rewriter Count",
+            min_value=1,
+            max_value=10,
+            value=5,
+            step=1,
+            help="Number of rewritten search queries generated from your input query."
+        )
+
+        result_count = st.slider(
+            "📚 Result Count per Query",
+            min_value=1,
+            max_value=20,
+            value=4,
+            step=1,
+            help="Number of search results returned by Colpali per each rewritten query."
+        )
+
+        image_resolution = st.slider(
+            "🖼️ Image Resolution",
+            min_value=1024,
+            max_value=3584,
+            value=1536,
+            step=256,
+            help="Maximum resolution for paper images fetched from Colpali."
+        )
 
     st.markdown("---")
     st.markdown("### 📚 Resources")
@@ -59,7 +160,7 @@ with col1:
             "Prompt to rewrite user query into targeted retrieval queries",
             value=prompt_query_build,
             height=280,
-            help="Use variables like `{{ prev_chat }}` to dynamically inject recent conversation context."
+            help="Use variables like `{{ prev_chat }}` to dynamically inject recent conversation context, and `{{ query_rewrite_count }}` to specify how many queries you want generated from the user's input."
         )
 
 with col2:
@@ -109,16 +210,23 @@ if prompt:
 
     client = MagicLLM(
         engine='openai',
-        model='@01/gpt-4o-2024-11-20' if openai_api_key else '@10/accounts/fireworks/models/llama4-maverick-instruct-basic',
+        # model='@01/gpt-4o-2024-11-20' if openai_api_key else '@10/accounts/fireworks/models/llama4-maverick-instruct-basic',
+        model=model_choices[selected_model],
         private_key=openai_api_key if openai_api_key else None,
-        base_url='https://llm.arz.ai'
+        base_url='https://llm.arz.ai',
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        presence_penalty=presence_penalty,
+        frequency_penalty=frequency_penalty,
+        repetition_penalty=repetition_penalty
     )
 
     prev_chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
     chat_query = ModelChat()
 
     prompt_template = Template(user_prompt_template)
-    rendered_prompt = prompt_template.render(prev_chat=prev_chat_context)
+    rendered_prompt = prompt_template.render(prev_chat=prev_chat_context, query_rewrite_count=query_rewrite_count)
 
     chat_query.add_user_message(rendered_prompt)
 
@@ -139,7 +247,7 @@ if prompt:
         # Send request
         res = requests.post(
             'https://llm.arz.ai/rag/colpali/arxiv',
-            data={'query': query, 'limit': 4}
+            data={'query': query, 'limit': result_count}
         ).json()
 
         for paper in res.get('data', []):
@@ -155,7 +263,10 @@ if prompt:
     images_data = []
     with st.spinner("Fetching paper images...", show_time=True):
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(fetch_and_encode_image, item['page_image']) for item in all_paper_data]
+            futures = [
+                executor.submit(fetch_and_encode_image, url=item['page_image'], new_height=image_resolution)
+                for item in all_paper_data
+            ]
             for future, item in zip(as_completed(futures), all_paper_data):
                 img_encoded = future.result()
                 if img_encoded:

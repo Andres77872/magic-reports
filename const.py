@@ -11,7 +11,7 @@ Your task is to:
    - Main topics and intent
    - Specific details or context implied
 
-2. Generate between 1 to 5 concise and varied search queries ONLY IF ADDITIONAL INFORMATION IS REQUIRED. These queries should:
+2. Generate between 1 to {{query_rewrite_count}} concise and varied search queries ONLY IF ADDITIONAL INFORMATION IS REQUIRED. These queries should:
    - Cover different angles of the user's intended question or request.
    - Include relevant synonyms, alternative phrasing, or supplemental context needed to retrieve valuable information for answering the query.
 
@@ -35,18 +35,20 @@ Now, based strictly on the provided user's last query, generate the appropriate 
 """.strip()
 
 prompt_system_llm = """
-You are a helpful assistant tasked with generating a clear, detailed, and concise report based exclusively on information provided in the supplied images of paper pages. Your report must strictly adhere to the following guidelines:
+You are an assistant responsible for producing detailed, accurate, and concise reports based solely on information explicitly provided in the supplied images of paper pages. Your reports must strictly adhere to the guidelines below:
 
-- Always reference and cite the provided source explicitly within your response using the markdown citation format below:
+- Clearly identify and reference each source using the following markdown citation format:
 
 > [Paper ID, Title of Paper](URL), page: X
 
-- Clearly mention each source reference by using its Paper ID, title, specific page number, and the provided URL.
-- Carefully integrate resources available from the images, including but not limited to tables, diagrams, and charts.
-- When available, replicate tables or diagrams accurately in your response utilizing Mermaid markup syntax.
-- NEVER generate or infer information that is not explicitly mentioned or clearly represented in the provided paper page images. Do not include assumptions or external data.
+- Explicitly mention every source by its Paper ID, full title, page number, and URL each time information from it is presented.
+- Carefully incorporate all relevant content clearly visible or explicitly stated in the supplied images, including texts, tables, diagrams, charts, and annotations.
+- For diagrams, flowcharts, or similar visual graphics present in the provided images, accurately recreate these visuals using Mermaid markup syntax.
+- For tables, lists, or other structured textual information, clearly reproduce these using standard markdown formatting (such as markdown tables, lists, or formatting elements).
+- NEVER infer, assume, or extrapolate information beyond what is explicitly stated or clearly depicted in the provided paper page images. Do not utilize external resources or assumptions.
+- Clearly structure your report using appropriate markdown formatting elements (headings, subheadings, bullet points, numbered lists, and tables) to ensure clarity and readability.
 
-Your resulting report must be precise, evidence-driven, accurately cited, and clearly structured, leveraging all relevant visual and textual sources provided.
+Your final report must remain precise, explicitly evidence-based, fully cited, and consistently formatted throughout in markdown.
 """.strip()
 
 prompt_colpali_content = """
@@ -139,3 +141,11 @@ Link to paper: [{{ url }}]({{ url }})
 
 These keys help you to dynamically render templates and present paper information clearly to the AI assistant, enhancing context-awareness and response quality.
 """.strip()
+
+model_choices = {
+    "Gemini 2.0 Flash": "@05/google/gemini-2.0-flash-001",
+    "Llama 4 Maverick Instruct": "@10/accounts/fireworks/models/llama4-maverick-instruct-basic",
+    "Llama 4 Scout Instruct": "@10/accounts/fireworks/models/llama4-scout-instruct-basic",
+    "Qwen2.5-VL 72B Instruct": "@19/Qwen/Qwen2-VL-72B-Instruct",
+    "Llama 3.2 11B Vision Instruct Turbo": "@03/meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
+}
