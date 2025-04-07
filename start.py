@@ -1,12 +1,13 @@
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import json
 import requests
 import streamlit as st
+from jinja2 import Template
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
 
-from const import prompt_query_build
+from const import prompt_query_build, prompt_system_llm, prompt_colpali_content
 from utils import fetch_and_encode_image
 
 st.set_page_config(
@@ -25,6 +26,12 @@ with st.sidebar:
         "Magic-LLM API Key (optional)",
         type="password"
     )
+
+    st.markdown("## 📝 Prompt Configuration (Jinja2 syntax)")
+    user_prompt_template = st.text_area("Query rewriter for search", prompt_query_build, height=250)
+    system_prompt_template = st.text_area("Agent system prompt", prompt_system_llm, height=250)
+    colpali_prompt_template = st.text_area("Colpali context prompt", prompt_colpali_content, height=250)
+
     st.markdown("---")
     st.markdown("### 📚 Resources")
     st.markdown("""
@@ -60,14 +67,18 @@ if prompt:
 
     client = MagicLLM(
         engine='openai',
-        model='@01/gpt-4o-2024-11-20' if openai_api_key else '@05/google/gemini-2.0-flash-001',
+        model='@01/gpt-4o-2024-11-20' if openai_api_key else '@10/accounts/fireworks/models/llama4-maverick-instruct-basic',
         private_key=openai_api_key if openai_api_key else None,
         base_url='https://llm.arz.ai'
     )
 
     prev_chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
     chat_query = ModelChat()
-    chat_query.add_user_message(prompt_query_build.replace('{prev_chat}', prev_chat_context))
+
+    prompt_template = Template(user_prompt_template)
+    rendered_prompt = prompt_template.render(prev_chat=prev_chat_context)
+
+    chat_query.add_user_message(rendered_prompt)
 
     with st.spinner("Generating related queries...", show_time=True):
         queries_json = client.llm.generate(chat_query).content.strip().lstrip("```json").rstrip("```")
@@ -106,25 +117,15 @@ if prompt:
             for future, item in zip(as_completed(futures), all_paper_data):
                 img_encoded = future.result()
                 if img_encoded:
-                    images_data.append((item['id'], item['page'], item['title'], item['url'], img_encoded))
+                    images_data.append((item, img_encoded))
 
-    chat = ModelChat(
-        system=(
-            "You are a helpful assistant tasked with creating a detailed yet concise report. "
-            "Your response must use information provided in paper page images when needed. "
-            "Clearly cite each source within markdown in the format:\n\n"
-            "> [Title of Paper](URL), page: X\n\n"
-            "Always explicitly reference the Paper ID, title, page number, and URL provided."
-        )
-    )
+    chat = ModelChat(system=system_prompt_template)
 
-    for paper_id, page_num, paper_title, paper_url, image_data in images_data:
+    for content_dict, image_data in images_data:
+        prompt_template = Template(colpali_prompt_template)
+        rendered_prompt = prompt_template.render(**content_dict)
         chat.add_user_message(
-            content=(
-                f"Use information from this paper page as necessary. "
-                f"When citing this source, reference clearly as:\n"
-                f"Paper ID: {paper_id}, Title: '{paper_title}', Page: {page_num}, URL: {paper_url}"
-            ),
+            content=rendered_prompt,
             image=image_data,
             media_type='image/png'
         )

@@ -2,7 +2,7 @@ prompt_query_build = """
 You are assisting in generating relevant search queries for a Retrieval-Augmented Generation (RAG) system based on the user's last message in the conversation. The user's latest message is enclosed within "<user_query>" tags below:
 
 <user_query>
-{prev_chat}
+{{prev_chat}}
 </user_query>
 
 Your task is to:
@@ -33,3 +33,18 @@ Output:
 
 Now, based strictly on the provided user's last query, generate the appropriate JSON array of queries, or an empty array if not required.
 """.strip()
+
+
+prompt_system_llm = """
+You are a helpful assistant tasked with creating a detailed yet concise report. 
+Your response must use information provided in paper page images when needed. 
+Clearly cite each source within markdown in the format:\n\n
+> [Title of Paper](URL), page: X\n\n
+Always explicitly reference the Paper ID, title, page number, and URL provided.
+""".strip()
+
+prompt_colpali_content = """
+Use information from this paper page as necessary. 
+When citing this source, reference clearly as:\n
+Paper ID: {{id}}, Title: '{{title}}', Page: {{page}}, URL: {{url}}
+"""
