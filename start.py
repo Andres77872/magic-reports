@@ -1,82 +1,62 @@
-import base64
-import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import BytesIO
 
+import json
 import requests
 import streamlit as st
-from PIL import Image
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
 
+from const import prompt_query_build
+from utils import fetch_and_encode_image
 
-def scale_image(image: Image.Image, new_height: int = 1536) -> Image.Image:
-    width, height = image.size
-    aspect_ratio = width / height
-    new_width = int(new_height * aspect_ratio)
-    return image.resize((new_width, new_height))
+st.set_page_config(
+    page_title="Colpali-Arxiv AI Chatbot",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-
-def fetch_image(i, new_height: int = 1536):
-    image_url = i['page_image']
-    try:
-        response = requests.get(image_url)
-        response.raise_for_status()
-        image = Image.open(BytesIO(response.content))
-        resized_image = scale_image(image, new_height)
-
-        buffered = BytesIO()
-        resized_image.save(buffered, format="PNG")
-        encoded_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-        print(f"Successfully fetched and resized image from: {image_url}",
-              f"(Size after encoding: {len(encoded_image) / 1024 / 1024:.2f} MB)")
-
-        return (i['id'], i['page'], i['title'], i['url'], encoded_image)
-
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to fetch image from {image_url}. Error: {e}")
-        return None
-    except Exception as e:
-        print(f"Error processing image from {image_url}. Error: {e}")
-        return None
-
-
+# Sidebar UI enhancements
 with st.sidebar:
-    st.header("🔑 API Configuration")
-
+    st.image("https://streamlit.io/images/brand/streamlit-logo-primary-colormark-darktext.png",
+             use_container_width=True)
+    st.markdown("## 🔑 API Configuration")
     openai_api_key = st.text_input(
-        "Enter your Magic-LLM API Key (Optional)",
-        key="chatbot_api_key",
-        type="password",
-        help="Provide your Magic-LLM API key here. Used for enhanced response generation."
+        "Magic-LLM API Key (optional)",
+        type="password"
     )
-
     st.markdown("---")
-
-    st.header("📚 Resources")
-
+    st.markdown("### 📚 Resources")
     st.markdown("""
-    - [🌐 Colpali Retrieval API Documentation](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)
-    - [🤗 Colpali Embedding Model (Hugging Face)](https://huggingface.co/vidore/colpali-v1.3)
-    - [📂 View Source on GitHub](https://github.com/Andres77872/magic-reports)
+    🌐 [Colpali Retrieval API](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)  
+
+    🤗 [Embedding Model](https://huggingface.co/vidore/colpali-v1.3)  
+
+    📂 [View Source Code](https://github.com/Andres77872/magic-reports)
     """)
 
 st.title("💬 Colpali-Arxiv Chat: AI-Powered Retrieval and Reporting")
-st.caption(
+st.markdown(
     "This demo showcases the capabilities of Colpali for embedding, indexing, and generating retrieval-augmented "
     "responses from Arxiv research papers. Enter a topic query, and the system will reformulate your query into "
     "3-5 targeted searches using the Colpali index, subsequently generating a concise summary report. "
     "Currently, this is a proof-of-concept focusing on single-turn chats, with conversational enhancements planned for the future. "
     "The Colpali index is independently maintained."
 )
+
+# Session state initialization
 if "messages" not in st.session_state:
-    st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Hello! How can I assist you today?"}]
 
 for msg in st.session_state.messages:
-    st.chat_message(msg["role"]).write(msg["content"])
+    st.chat_message(msg["role"]).markdown(msg["content"])
 
-if prompt := st.chat_input():
+prompt = st.chat_input("What's your question about Arxiv papers?")
+
+if prompt:
+    # show user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.chat_message("user").markdown(prompt)
 
     client = MagicLLM(
         engine='openai',
@@ -85,88 +65,35 @@ if prompt := st.chat_input():
         base_url='https://llm.arz.ai'
     )
 
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.chat_message("user").write(prompt)
+    prev_chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
+    chat_query = ModelChat()
+    chat_query.add_user_message(prompt_query_build.replace('{prev_chat}', prev_chat_context))
 
-    images = []
+    with st.spinner("Generating related queries..."):
+        queries_json = client.llm.generate(chat_query).content.strip().lstrip("```json").rstrip("```")
+        queries = json.loads(queries_json)
 
-    chat_q = ModelChat()
+    # fetch paper data
+    all_paper_data = []
+    unique_images = set()
+    progress_bar = st.progress(0)
+    for idx, query in enumerate(queries):
+        res = requests.post('https://llm.arz.ai/rag/colpali/arxiv', data={'query': query, 'limit': 4}).json()
+        for paper in res.get('data', []):
+            if paper['page_image'] not in unique_images:
+                all_paper_data.append(paper)
+                unique_images.add(paper['page_image'])
+        progress_bar.progress((idx + 1) / len(queries))
+    progress_bar.empty()
 
-    prev_chat = [
-        f"{x['role']}: {x['content']}"
-        for x in st.session_state.messages[-6:]
-    ]
-
-    prev_chat = "\n".join(prev_chat)
-    print(prev_chat)
-
-    chat_q.add_user_message(f"""
-You are assisting in generating relevant search queries for a Retrieval-Augmented Generation (RAG) system based on the user's last message in the conversation. The user's latest message is enclosed within "<user_query>" tags below:
-
-<user_query>
-{prev_chat}
-</user_query>
-
-Your task is to:
-
-1. Analyze the user's query carefully to identify:
-   - Main topics and intent
-   - Specific details or context implied
-
-2. Generate between 1 to 5 concise and varied search queries ONLY IF ADDITIONAL INFORMATION IS REQUIRED. These queries should:
-   - Cover different angles of the user's intended question or request.
-   - Include relevant synonyms, alternative phrasing, or supplemental context needed to retrieve valuable information for answering the query.
-
-3. DO NOT generate queries for:
-   - Simple factual questions (e.g., "What's 2+2?")
-   - General greetings or irrelevant inputs ("Hi", "thanks").
-
-4. Output your response strictly as a JSON array of strings. Never provide context, explanation, or extra text. If no additional information or queries are necessary, respond instantly with an empty JSON array.
-
-Examples:
-
-User query: "Differences between electric and diesel engines?"
-Output:
-["electric vs diesel engine comparison", "benefits of electric engines over diesel", "performance differences electric vs diesel engine", "environmental impact electric vs diesel engines"]
-
-User query: "Thanks for your help!"
-Output:
-[]
-
-Now, based strictly on the provided user's last query, generate the appropriate JSON array of queries, or an empty array if not required.
-""".strip())
-    resp = client.llm.generate(chat_q).content
-    print(resp)
-    resp = resp.strip().strip('`').lstrip('json').strip()
-    print()
-    queries = json.loads(resp)
-    print(queries)
-    query_result = []
-    query_uniq = set()
-    for q in queries:
-        print(q)
-        url = 'https://llm.arz.ai/rag/colpali/arxiv'
-        headers = {
-            'accept': 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-        data = {
-            'query': q,
-            'limit': 4
-        }
-
-        qr = requests.post(url, headers=headers, data=data).json()
-        for i in qr['data']:
-            if i['page_image'] not in query_uniq:
-                query_uniq.add(i['page_image'])
-                query_result.append(i)
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        future_to_image = {executor.submit(fetch_image, i): i for i in query_result}
-        for future in as_completed(future_to_image):
-            result = future.result()
-            if result:
-                images.append(result)
+    images_data = []
+    with st.spinner("Fetching paper images..."):
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(fetch_and_encode_image, item['page_image']) for item in all_paper_data]
+            for future, item in zip(as_completed(futures), all_paper_data):
+                img_encoded = future.result()
+                if img_encoded:
+                    images_data.append((item['id'], item['page'], item['title'], item['url'], img_encoded))
 
     chat = ModelChat(
         system=(
@@ -178,7 +105,7 @@ Now, based strictly on the provided user's last query, generate the appropriate 
         )
     )
 
-    for paper_id, page_num, paper_title, paper_url, image_data in images:
+    for paper_id, page_num, paper_title, paper_url, image_data in images_data:
         chat.add_user_message(
             content=(
                 f"Use information from this paper page as necessary. "
@@ -188,27 +115,18 @@ Now, based strictly on the provided user's last query, generate the appropriate 
             image=image_data,
             media_type='image/png'
         )
-    # chat.add_user_message(
-    #     'Just respond if you have the response on the pages and cite with table number, image, chart, topic, subtopic, etc. '
-    #     'Also if you found images, figures, diagrams, Etc related with the user Query describe with the reference:\n\n Query:' + query_str)
 
-    chat.messages.extend(st.session_state.messages)
-
-    # Create a placeholder for the streaming response
+    # stream response
     with st.chat_message("assistant"):
-        response_placeholder = st.empty()
+        placeholder_response = st.empty()
         full_response = ""
-
-        # Stream the response
         for chunk in client.llm.stream_generate(chat):
-            if hasattr(chunk, 'choices') and chunk.choices:
+            if hasattr(chunk, 'choices'):
                 content = chunk.choices[0].delta.content
                 if content:
                     full_response += content
-                    response_placeholder.markdown(full_response + "▌")
+                    placeholder_response.markdown(full_response + "▌")
 
-        # Update the final response without the cursor
-        response_placeholder.markdown(full_response)
+        placeholder_response.markdown(full_response)
 
-    # Add the assistant's response to the chat history
     st.session_state.messages.append({"role": "assistant", "content": full_response})
