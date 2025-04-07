@@ -1,0 +1,14 @@
+# .streamlit/config.toml
+
+[theme]
+primaryColor="#6f42c1"  # A nice purple
+backgroundColor="#f0f2f6" # Light gray background
+secondaryBackgroundColor="#ffffff" # White for widgets/cards
+textColor="#31333F" # Dark text for readability
+font="sans serif" # Use a clean sans-serif font
+
+[browser]
+gatherUsageStats = false # Optional: Disables usage statistics gathering
+
+[ui]
+hideTopBar = false # Optional: Keep top bar for theme consistency

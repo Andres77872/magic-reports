@@ -1,11 +1,12 @@
 import json
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import streamlit as st
-from jinja2 import Template
+from jinja2 import Template, TemplateError
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
-
+# Assuming these are defined elsewhere as before
 from const import (prompt_query_build,
                    prompt_system_llm,
                    prompt_colpali_content,
@@ -14,6 +15,7 @@ from const import (prompt_query_build,
                    app_description)
 from utils import fetch_and_encode_image, fetch_colpali_data
 
+# --- Page Configuration (Must be the first Streamlit command) ---
 st.set_page_config(
     page_title="Colpali-Arxiv AI Chatbot",
     page_icon="🤖",
@@ -21,303 +23,314 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Sidebar UI enhancements
-# Sidebar UI enhancements
+# --- Constants & Helper Functions ---
+DEFAULT_MODEL_KEY = list(model_choices.keys())[0] # Get the first model key as default
+
+# --- Sidebar ---
 with st.sidebar:
     st.image(
         "https://streamlit.io/images/brand/streamlit-logo-primary-colormark-darktext.png",
         use_container_width=True
     )
+    st.markdown("## 🔑 API Credentials")
     openai_api_key = st.text_input(
         "Magic-LLM API Key (optional)",
-        type="password"
+        type="password",
+        help="Enter your Magic-LLM API key if required by the selected model."
     )
+    if not openai_api_key and model_choices[DEFAULT_MODEL_KEY].startswith('@01'): # Example check
+         st.warning("An API key might be needed for the default or selected model.", icon="⚠️")
 
-    st.markdown("---")
-    st.markdown("## ⚙️ Configuration")
+    st.divider() # Visual separator
 
+    st.markdown("## ⚙️ Core Configuration")
     selected_model = st.selectbox(
         "🤖 Select Model",
         list(model_choices.keys()),
-        index=0,
-        help="Choose the LLM model to generate responses."
+        index=0, # Default to the first model in the list
+        help="Choose the Large Language Model for generating responses."
     )
 
-    with st.expander("## 🔑 LLM Configuration", expanded=False):
-        st.markdown("## 🛠️ Generation Settings")
+    # --- Advanced Configuration Expander ---
+    with st.expander("🛠️ Advanced Settings", expanded=False):
 
+        st.markdown("#### LLM Generation Parameters")
         temperature = st.slider(
-            "🌡️ Temperature",
-            min_value=0.0,
-            max_value=2.0,
-            value=1.0,
-            step=0.01,
-            help="Control randomness of the generated text. Lower values produce more deterministic output."
+            "🌡️ Temperature", 0.0, 2.0, 1.0, 0.01,
+            help="Controls randomness. Lower values are more deterministic."
         )
-
         top_p = st.slider(
-            "📈 Top-P (nucleus sampling)",
-            min_value=0.0,
-            max_value=1.0,
-            value=1.0,
-            step=0.01,
-            help="Set probability threshold for nucleus sampling. Lower values focus on likely words only."
+            "🎯 Top-P", 0.0, 1.0, 1.0, 0.01,
+            help="Nucleus sampling probability threshold."
         )
-
         max_tokens = st.number_input(
-            "📝 Maximum new tokens",
-            min_value=1,
-            max_value=8192,
-            value=4096,
-            step=1,
-            help="Maximum length of the generated response (max tokens)."
+            "📝 Max New Tokens", 1, 8192, 4096, 1,
+            help="Maximum length of the generated response."
         )
-
         presence_penalty = st.slider(
-            "👤 Presence penalty",
-            min_value=-2.0,
-            max_value=2.0,
-            value=0.0,
-            step=0.01,
-            help="Positive values penalize new token inclusion based on whether they appeared already."
+            "👤 Presence Penalty", -2.0, 2.0, 0.0, 0.01,
+            help="Penalizes new tokens based on their appearance in the text so far."
         )
-
         frequency_penalty = st.slider(
-            "🔄 Frequency penalty",
-            min_value=-2.0,
-            max_value=2.0,
-            value=0.0,
-            step=0.01,
-            help="Penalize frequent usage of same tokens. Higher values encourage diversity."
+            "🔄 Frequency Penalty", -2.0, 2.0, 0.0, 0.01,
+            help="Penalizes new tokens based on their frequency in the text so far."
         )
-
         repetition_penalty = st.slider(
-            "♻️ Repetition penalty",
-            min_value=0.5,
-            max_value=2.0,
-            value=1.0,
-            step=0.01,
-            help="Penalize repetition. Values >1 make repetitions less likely, values <1 more likely."
+            "♻️ Repetition Penalty", 0.5, 2.0, 1.0, 0.01,
+            help="Penalizes repetition (>1 less likely, <1 more likely)."
         )
 
-    with st.expander("🔍 **Colpali Search Parameters**", expanded=False):
+        st.markdown("#### Colpali Search Parameters")
         query_rewrite_count = st.slider(
-            "📝 Query Rewriter Count",
-            min_value=1,
-            max_value=10,
-            value=5,
-            step=1,
-            help="Number of rewritten search queries generated from your input query."
+            "✍️ Query Rewrites", 1, 10, 5, 1,
+            help="Number of search queries generated from your input."
         )
-
         result_count = st.slider(
-            "📚 Result Count per Query",
-            min_value=1,
-            max_value=20,
-            value=4,
-            step=1,
-            help="Number of search results returned by Colpali per each rewritten query."
+            "📚 Results per Query", 1, 20, 4, 1,
+            help="Number of Colpali search results per rewritten query."
         )
-
         image_resolution = st.slider(
-            "🖼️ Image Resolution",
-            min_value=1024,
-            max_value=3584,
-            value=1536,
-            step=256,
-            help="Maximum resolution for paper images fetched from Colpali."
+            "🖼️ Image Resolution (Max Height)", 1024, 3584, 1536, 256,
+            help="Maximum height for fetched paper page images (px)."
         )
 
-    st.markdown("---")
+    # --- Prompt Configuration Expander ---
+    with st.expander("📝 Prompt Templates (Jinja2)", expanded=False):
+        st.markdown("Use Jinja2 syntax for dynamic prompts.")
+        with st.popover("ℹ️ Jinja2 Key Reference"):
+            st.markdown(helper_prompt_configuration_jinja2)
+            st.markdown("---")
+            st.markdown("**Paper Context Keys for Colpali Prompt:**")
+            st.code("""
+- {{ page }}: Page number
+- {{ id }}: Arxiv ID
+- {{ doi }}: DOI (nullable)
+- {{ date }}: Publication date
+- {{ title }}: Paper title
+- {{ authors }}: Authors
+- {{ abstract }}: Abstract
+- {{ url }}: Arxiv URL
+- {{ version }}: Paper version
+- {{ page_image }}: Page image URL
+            """)
+
+        user_prompt_template = st.text_area(
+            "🔎 **Search Query Generation Prompt**",
+            value=prompt_query_build, height=200,
+            help="Template to rewrite user input into search queries. Use {{ prev_chat }} and {{ query_rewrite_count }}."
+        )
+        system_prompt_template = st.text_area(
+            "🤖 **LLM System Prompt**",
+            value=prompt_system_llm, height=200,
+            help="Overall instructions for the AI assistant's behavior and persona."
+        )
+        colpali_prompt_template = st.text_area(
+            "📑 **Colpali Context Prompt**",
+            value=prompt_colpali_content, height=200,
+            help="Template for presenting fetched paper content to the LLM. Use paper context keys (see reference)."
+        )
+
+    st.divider()
     st.markdown("### 📚 Resources")
     st.markdown("""
-    🌐 [Colpali Retrieval API](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)  
-
-    🤗 [Embedding Model](https://huggingface.co/vidore/colpali-v1.3)
+    - [Colpali Retrieval API Docs](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)
+    - [Embedding Model Info](https://huggingface.co/vidore/colpali-v1.3)
     """)
+    st.caption(f"Model ID: `{model_choices[selected_model]}`")
 
-st.title("💬 Colpali-Arxiv Chat: AI-Powered Retrieval and Reporting")
+
+# --- Main Chat Interface ---
+st.title("💬 Colpali-Arxiv Chat")
 st.markdown(app_description)
+st.divider()
 
-st.markdown("## 📝 Prompt Configuration (Jinja2 syntax)")
-
-with st.expander("📖 Show detailed Jinja2 keys reference", expanded=False):
-    st.markdown(helper_prompt_configuration_jinja2)
-
-col1, col2, col3 = st.columns(3, gap="medium")
-
-with col1:
-    with st.expander("#### 🔎 Search Query Prompt", expanded=False):
-        user_prompt_template = st.text_area(
-            "Prompt to rewrite user query into targeted retrieval queries",
-            value=prompt_query_build,
-            height=280,
-            help="Use variables like `{{ prev_chat }}` to dynamically inject recent conversation context, and `{{ query_rewrite_count }}` to specify how many queries you want generated from the user's input."
-        )
-
-with col2:
-    with st.expander("#### 🤖 LLM System Prompt", expanded=False):
-        system_prompt_template = st.text_area(
-            "System-level instructions for the AI assistant",
-            value=prompt_system_llm,
-            height=280,
-            help="Provide overarching instructions for assistant behavior. Example: 'You are an assistant specialized in summarizing scientific papers from Arxiv.'"
-        )
-
-with col3:
-    with st.expander("#### 📑 Colpali Context Prompt", expanded=False):
-        colpali_prompt_template = st.text_area(
-            "Prompt guiding how paper content is presented to the LLM",
-            value=prompt_colpali_content,
-            height=280,
-            help=(
-                "You can use the following keys from the paper context dictionary:\n\n"
-                "- `{{ page }}`: Page number of the retrieved content.\n"
-                "- `{{ id }}`: Arxiv paper identifier.\n"
-                "- `{{ doi }}`: DOI of paper (if available, can be null).\n"
-                "- `{{ date }}`: Publication date.\n"
-                "- `{{ title }}`: Paper title.\n"
-                "- `{{ authors }}`: Paper authors.\n"
-                "- `{{ abstract }}`: Paper abstract.\n"
-                "- `{{ url }}`: URL to the original Arxiv paper.\n"
-                "- `{{ version }}`: Paper version number.\n"
-                "- `{{ page_image }}`: URL of the retrieved page image.\n\n"
-                "These keys can enrich your prompt templates to effectively present paper information to the LLM."
-            )
-        )
-
-# Session state initialization
+# Initialize chat history
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Hello! How can I assist you today?"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Hello! Ask me about Arxiv papers, and I'll try to find relevant information using Colpali."}]
 
+# Display chat messages
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).markdown(msg["content"])
 
-prompt = st.chat_input("What's your question about Arxiv papers?")
-
-if prompt:
-    # show user message
+# Chat input
+if prompt := st.chat_input("What's your question about Arxiv papers?"):
+    # Add user message to history and display
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.chat_message("user").markdown(prompt)
 
-    client = MagicLLM(
-        engine='openai',
-        # model='@01/gpt-4o-2024-11-20' if openai_api_key else '@10/accounts/fireworks/models/llama4-maverick-instruct-basic',
-        model=model_choices[selected_model],
-        private_key=openai_api_key if openai_api_key else None,
-        base_url='https://llm.arz.ai',
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=max_tokens,
-        presence_penalty=presence_penalty,
-        frequency_penalty=frequency_penalty,
-        repetition_penalty=repetition_penalty
-    )
-
-    prev_chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])
-    chat_query = ModelChat()
-
-    prompt_template = Template(user_prompt_template)
-    rendered_prompt = prompt_template.render(prev_chat=prev_chat_context, query_rewrite_count=query_rewrite_count)
-
-    chat_query.add_user_message(rendered_prompt)
-
-    with st.spinner("Generating related queries...", show_time=True):
-        queries_json = client.llm.generate(chat_query).content.strip().lstrip("```json").rstrip("```")
-        queries = json.loads(queries_json)
-
-    # fetch paper data in parallel
-    all_paper_data = []
-    unique_images = set()
-
-    queries_progress_text = st.empty()
-    progress_bar = st.progress(0)
-
-    with ThreadPoolExecutor(max_workers=min(3, len(queries))) as executor:
-        futures = {executor.submit(fetch_colpali_data, q, result_count): q for q in queries}
-        for idx, future in enumerate(as_completed(futures)):
-            query = futures[future]
-            queries_progress_text.markdown(f"🔍 **Completed Query ({idx + 1}/{len(queries)}):** `{query}`")
-            papers = future.result()
-            for paper in papers:
-                if paper['page_image'] not in unique_images:
-                    all_paper_data.append(paper)
-                    unique_images.add(paper['page_image'])
-            progress_bar.progress((idx + 1) / len(queries))
-
-    progress_bar.empty()
-    queries_progress_text.empty()
-
-    # Display an expander with all queries for easy reference
-    with st.expander("🔎 **Generated Colpali Queries**", expanded=False):
-        for idx, q in enumerate(queries, 1):
-            st.markdown(f"- **Query {idx}:** `{q}`")
-
-    # Load images with progress bar
-    images_data = []
-    progress_bar = st.progress(0)
-    progress_status = st.empty()
-
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {
-            executor.submit(fetch_and_encode_image, url=item['page_image'], new_height=image_resolution): item
-            for item in all_paper_data
-        }
-
-        total_images = len(futures)
-        completed_images = 0
-
-        for future in as_completed(futures):
-            item = futures[future]
-            img_encoded = future.result()
-            if img_encoded:
-                images_data.append((item, img_encoded))
-
-            completed_images += 1
-            progress_percentage = completed_images / total_images
-            progress_bar.progress(progress_percentage)
-            progress_status.markdown(f"🖼️ Fetching images... ({completed_images}/{total_images})")
-
-    progress_bar.empty()
-    progress_status.empty()
-
-    # Prepare messages
-    chat = ModelChat(system=system_prompt_template)
-
-    for content_dict, image_data in images_data:
-        prompt_template = Template(colpali_prompt_template)
-        rendered_prompt = prompt_template.render(**content_dict)
-        chat.add_user_message(
-            content=rendered_prompt,
-            image=image_data,
-            media_type='image/png'
+    # --- Processing Logic ---
+    try:
+        # 1. Initialize LLM Client
+        client = MagicLLM(
+            engine='openai', # Keep as needed
+            model=model_choices[selected_model],
+            private_key=openai_api_key if openai_api_key else None,
+            base_url='https://llm.arz.ai',
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty
         )
 
-    # Stream response with spinner visible while waiting for first token
-    with st.chat_message("assistant"):
-        placeholder_response = st.empty()
-        full_response = ""
+        # 2. Prepare Context and Generate Search Queries
+        prev_chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]]) # Last 6 messages
+        chat_query = ModelChat()
+        try:
+            query_gen_template = Template(user_prompt_template)
+            rendered_query_prompt = query_gen_template.render(
+                prev_chat=prev_chat_context,
+                query_rewrite_count=query_rewrite_count
+            )
+            chat_query.add_user_message(rendered_query_prompt)
+        except TemplateError as e:
+            st.error(f"Error rendering search query prompt template: {e}", icon="❌")
+            st.stop()
 
-        # Create a container for the spinner
-        spinner_container = st.empty()
-        with spinner_container:
-            with st.spinner("✨ Generating response, please wait..."):
-                response_generator = client.llm.stream_generate(chat)
-                first_token_received = False
+        queries = []
+        with st.status("🧠 Generating search queries...", expanded=False) as status:
+            try:
+                st.write("Calling LLM to generate queries...")
+                response = client.llm.generate(chat_query)
+                queries_json = response.content.strip().lstrip("```json").rstrip("```")
+                queries = json.loads(queries_json)
+                if not isinstance(queries, list) or not all(isinstance(q, str) for q in queries):
+                     raise ValueError("LLM did not return a valid list of strings for queries.")
+                status.update(label=f"✅ Generated {len(queries)} search queries.", state="complete", expanded=False)
+            except json.JSONDecodeError as e:
+                 st.error(f"Error parsing LLM response for queries (expected JSON list of strings): {e}\nRaw response: `{response.content}`", icon="❌")
+                 status.update(label="❌ Error parsing queries", state="error")
+                 st.stop()
+            except Exception as e:
+                 st.error(f"Error generating search queries: {e}", icon="❌")
+                 traceback.print_exc() # Log traceback for debugging
+                 status.update(label="❌ Error generating queries", state="error")
+                 st.stop()
 
-                # Iterate through response generator
-                for chunk in response_generator:
-                    if hasattr(chunk, 'choices'):
-                        content = chunk.choices[0].delta.content
-                        if content:
-                            if not first_token_received:
-                                first_token_received = True
-                                spinner_container.empty()  # Remove the spinner when first token arrives
-                            full_response += content
-                            placeholder_response.markdown(full_response + "▌")
+        # Display generated queries in an expander
+        with st.expander(f"🔍 Generated Colpali Queries ({len(queries)})", expanded=False):
+            for idx, q in enumerate(queries, 1):
+                st.markdown(f"- `{q}`")
 
-        # Finalize full response without cursor
-        placeholder_response.markdown(full_response)
+        # 3. Fetch Colpali Data and Images Concurrently
+        all_paper_data = []
+        unique_images = set()
+        images_data = [] # Store tuples of (item_metadata, encoded_image_data)
 
-    # Update session messages
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+        with st.status("🔄 Fetching data from Colpali and processing images...", expanded=True) as status:
+            # --- Fetch Colpali paper data ---
+            status.update(label="📚 Fetching paper data from Colpali...")
+            colpali_results = {} # Store results keyed by query
+            try:
+                with ThreadPoolExecutor(max_workers=min(5, len(queries))) as executor:
+                    future_to_query = {executor.submit(fetch_colpali_data, q, result_count): q for q in queries}
+                    completed_count = 0
+                    for future in as_completed(future_to_query):
+                        query = future_to_query[future]
+                        try:
+                            papers = future.result()
+                            colpali_results[query] = papers
+                            processed_papers = 0
+                            for paper in papers:
+                                # Simple validation - check if essential keys exist
+                                if paper.get('page_image') and paper.get('id'):
+                                     if paper['page_image'] not in unique_images:
+                                         all_paper_data.append(paper)
+                                         unique_images.add(paper['page_image'])
+                                         processed_papers += 1
+                                else:
+                                     st.warning(f"Skipping invalid paper data from query '{query}': {paper}", icon="⚠️")
+                            completed_count += 1
+                            status.update(label=f"📚 Fetched data for query {completed_count}/{len(queries)} ('{query}') - Added {processed_papers} unique items...")
+                        except Exception as exc:
+                            st.warning(f"Query '{query}' generated an exception during fetch: {exc}", icon="⚠️")
+                            colpali_results[query] = [] # Mark as failed but continue
+                            completed_count += 1
+                            status.update(label=f"⚠️ Error fetching for query {completed_count}/{len(queries)} ('{query}')...")
+
+                if not all_paper_data:
+                    st.warning("No valid paper data found from Colpali for the generated queries.", icon="ℹ️")
+                    status.update(label="⚠️ No paper data found.", state="complete", expanded=False)
+                    st.stop() # Stop if no data to proceed
+
+                status.update(label=f"🖼️ Fetching {len(all_paper_data)} unique images...")
+
+                # --- Fetch and encode images ---
+                with ThreadPoolExecutor(max_workers=8) as executor: # More workers for I/O bound image fetching
+                    future_to_item = {
+                        executor.submit(fetch_and_encode_image, url=item['page_image'], new_height=image_resolution): item
+                        for item in all_paper_data
+                    }
+                    completed_images = 0
+                    total_images = len(future_to_item)
+                    for future in as_completed(future_to_item):
+                        item = future_to_item[future]
+                        try:
+                            img_encoded = future.result()
+                            if img_encoded:
+                                images_data.append((item, img_encoded))
+                        except Exception as exc:
+                            st.warning(f"Failed to fetch or encode image {item.get('page_image', 'N/A')}: {exc}", icon="🖼️")
+                        completed_images += 1
+                        status.update(label=f"🖼️ Fetched {completed_images}/{total_images} images...")
+
+                status.update(label=f"✅ Fetched {len(images_data)} images successfully.", state="complete", expanded=False)
+
+            except Exception as e:
+                 st.error(f"An error occurred during data/image fetching: {e}", icon="❌")
+                 traceback.print_exc()
+                 status.update(label="❌ Error during data fetching", state="error")
+                 st.stop()
+
+        if not images_data:
+            st.error("No images could be fetched or processed. Cannot proceed with multimodal generation.", icon="🖼️")
+            st.stop()
+
+        # 4. Prepare Final LLM Request with Context and Images
+        chat = ModelChat(system=system_prompt_template)
+        try:
+            colpali_template = Template(colpali_prompt_template)
+            for content_dict, image_data in images_data:
+                rendered_colpali_prompt = colpali_template.render(**content_dict)
+                chat.add_user_message(
+                    content=rendered_colpali_prompt,
+                    image=image_data,
+                    media_type='image/png' # Assuming PNG, adjust if needed
+                )
+        except TemplateError as e:
+            st.error(f"Error rendering Colpali context prompt template: {e}", icon="❌")
+            st.stop()
+        except Exception as e:
+             st.error(f"Error preparing final LLM request: {e}", icon="❌")
+             traceback.print_exc()
+             st.stop()
+
+
+        # 5. Generate and Stream Final Response
+        with st.chat_message("assistant"):
+            message_placeholder = st.empty()
+            full_response = ""
+            try:
+                stream = client.llm.stream_generate(chat)
+                for chunk in stream:
+                    # Adapt based on actual chunk structure of your client library
+                    content_delta = chunk.choices[0].delta.content
+                    if content_delta:
+                        full_response += content_delta
+                        message_placeholder.markdown(full_response + "▌") # Add cursor effect
+                message_placeholder.markdown(full_response) # Final response
+            except Exception as e:
+                 st.error(f"Error during final response generation: {e}", icon="❌")
+                 traceback.print_exc()
+                 full_response = "Sorry, I encountered an error while generating the response."
+                 message_placeholder.markdown(full_response)
+
+
+        # Add final assistant response to history
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+    except Exception as e:
+        # Catch-all for unexpected errors in the main flow
+        st.error(f"An unexpected error occurred: {e}", icon="🔥")
+        traceback.print_exc() # Log for debugging
