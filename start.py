@@ -6,6 +6,7 @@ import streamlit as st
 from jinja2 import Template, TemplateError
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
+
 # Assuming these are defined elsewhere as before
 from const import (prompt_query_build,
                    prompt_system_llm,
@@ -24,7 +25,7 @@ st.set_page_config(
 )
 
 # --- Constants & Helper Functions ---
-DEFAULT_MODEL_KEY = list(model_choices.keys())[0] # Get the first model key as default
+DEFAULT_MODEL_KEY = list(model_choices.keys())[0]  # Get the first model key as default
 
 # --- Sidebar ---
 with st.sidebar:
@@ -38,22 +39,22 @@ with st.sidebar:
         type="password",
         help="Enter your Magic-LLM API key if required by the selected model."
     )
-    if not openai_api_key and model_choices[DEFAULT_MODEL_KEY].startswith('@01'): # Example check
-         st.warning("An API key might be needed for the default or selected model.", icon="⚠️")
+    # Simple check if default needs key (adjust logic as needed)
+    if not openai_api_key and model_choices.get(DEFAULT_MODEL_KEY, "").startswith('@01'):
+        st.warning("An API key might be needed for the default or selected model.", icon="⚠️")
 
-    st.divider() # Visual separator
+    st.divider()  # Visual separator
 
     st.markdown("## ⚙️ Core Configuration")
     selected_model = st.selectbox(
         "🤖 Select Model",
         list(model_choices.keys()),
-        index=0, # Default to the first model in the list
+        index=0,  # Default to the first model in the list
         help="Choose the Large Language Model for generating responses."
     )
 
     # --- Advanced Configuration Expander ---
     with st.expander("🛠️ Advanced Settings", expanded=False):
-
         st.markdown("#### LLM Generation Parameters")
         temperature = st.slider(
             "🌡️ Temperature", 0.0, 2.0, 1.0, 0.01,
@@ -99,20 +100,6 @@ with st.sidebar:
         st.markdown("Use Jinja2 syntax for dynamic prompts.")
         with st.popover("ℹ️ Jinja2 Key Reference"):
             st.markdown(helper_prompt_configuration_jinja2)
-            st.markdown("---")
-            st.markdown("**Paper Context Keys for Colpali Prompt:**")
-            st.code("""
-- {{ page }}: Page number
-- {{ id }}: Arxiv ID
-- {{ doi }}: DOI (nullable)
-- {{ date }}: Publication date
-- {{ title }}: Paper title
-- {{ authors }}: Authors
-- {{ abstract }}: Abstract
-- {{ url }}: Arxiv URL
-- {{ version }}: Paper version
-- {{ page_image }}: Page image URL
-            """)
 
         user_prompt_template = st.text_area(
             "🔎 **Search Query Generation Prompt**",
@@ -138,7 +125,6 @@ with st.sidebar:
     """)
     st.caption(f"Model ID: `{model_choices[selected_model]}`")
 
-
 # --- Main Chat Interface ---
 st.title("💬 Colpali-Arxiv Chat")
 st.markdown(app_description)
@@ -146,7 +132,8 @@ st.divider()
 
 # Initialize chat history
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Hello! Ask me about Arxiv papers, and I'll try to find relevant information using Colpali."}]
+    st.session_state.messages = [{"role": "assistant",
+                                  "content": "Hello! Ask me about Arxiv papers, and I'll try to find relevant information using Colpali."}]
 
 # Display chat messages
 for msg in st.session_state.messages:
@@ -162,7 +149,7 @@ if prompt := st.chat_input("What's your question about Arxiv papers?"):
     try:
         # 1. Initialize LLM Client
         client = MagicLLM(
-            engine='openai', # Keep as needed
+            engine='openai',  # Keep as needed
             model=model_choices[selected_model],
             private_key=openai_api_key if openai_api_key else None,
             base_url='https://llm.arz.ai',
@@ -175,7 +162,8 @@ if prompt := st.chat_input("What's your question about Arxiv papers?"):
         )
 
         # 2. Prepare Context and Generate Search Queries
-        prev_chat_context = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]]) # Last 6 messages
+        prev_chat_context = "\n".join(
+            [f"{m['role']}: {m['content']}" for m in st.session_state.messages[-6:]])  # Last 6 messages
         chat_query = ModelChat()
         try:
             query_gen_template = Template(user_prompt_template)
@@ -193,144 +181,248 @@ if prompt := st.chat_input("What's your question about Arxiv papers?"):
             try:
                 st.write("Calling LLM to generate queries...")
                 response = client.llm.generate(chat_query)
-                queries_json = response.content.strip().lstrip("```json").rstrip("```")
-                queries = json.loads(queries_json)
+                # Attempt to parse JSON, handling potential markdown code fences
+                response_content = response.content.strip()
+                if response_content.startswith("```json"):
+                    response_content = response_content[len("```json"):].strip()
+                if response_content.endswith("```"):
+                    response_content = response_content[:-len("```")].strip()
+
+                queries = json.loads(response_content)
                 if not isinstance(queries, list) or not all(isinstance(q, str) for q in queries):
-                     raise ValueError("LLM did not return a valid list of strings for queries.")
+                    raise ValueError("LLM did not return a valid list of strings for queries.")
                 status.update(label=f"✅ Generated {len(queries)} search queries.", state="complete", expanded=False)
             except json.JSONDecodeError as e:
-                 st.error(f"Error parsing LLM response for queries (expected JSON list of strings): {e}\nRaw response: `{response.content}`", icon="❌")
-                 status.update(label="❌ Error parsing queries", state="error")
-                 st.stop()
+                st.error(
+                    f"Error parsing LLM response for queries (expected JSON list of strings): {e}\nRaw response: `{response.content}`",
+                    icon="❌")
+                status.update(label="❌ Error parsing queries", state="error")
+                st.stop()
             except Exception as e:
-                 st.error(f"Error generating search queries: {e}", icon="❌")
-                 traceback.print_exc() # Log traceback for debugging
-                 status.update(label="❌ Error generating queries", state="error")
-                 st.stop()
+                st.error(f"Error generating search queries: {e}", icon="❌")
+                traceback.print_exc()  # Log traceback for debugging
+                status.update(label="❌ Error generating queries", state="error")
+                st.stop()
 
         # Display generated queries in an expander
         with st.expander(f"🔍 Generated Colpali Queries ({len(queries)})", expanded=False):
-            for idx, q in enumerate(queries, 1):
-                st.markdown(f"- `{q}`")
+            if queries:
+                for idx, q in enumerate(queries, 1):
+                    st.markdown(f"- `{q}`")
+            else:
+                st.markdown("No queries were generated.")
 
-        # 3. Fetch Colpali Data and Images Concurrently
-        all_paper_data = []
-        unique_images = set()
-        images_data = [] # Store tuples of (item_metadata, encoded_image_data)
+        # --- Stages 3 & 4: Fetch Colpali Data and Images Concurrently ---
+        all_paper_data = []  # Store validated paper metadata dictionaries
+        unique_image_urls = set()  # Track unique image URLs to fetch
+        images_data = []  # Store tuples of (item_metadata, encoded_image_data)
 
-        with st.status("🔄 Fetching data from Colpali and processing images...", expanded=True) as status:
-            # --- Fetch Colpali paper data ---
-            status.update(label="📚 Fetching paper data from Colpali...")
-            colpali_results = {} # Store results keyed by query
+        # Use a single status context for the entire fetching process
+        with st.status("🔄 Fetching resources...", expanded=True) as status:
             try:
-                with ThreadPoolExecutor(max_workers=min(5, len(queries))) as executor:
+                # --- Stage 3: Fetch Colpali paper data ---
+                status.update(label="📚 Fetching paper metadata from Colpali...")
+                colpali_results_raw = {}  # Store raw results keyed by query
+                papers_processed_count = 0
+                total_possible_papers = len(queries) * result_count
+
+                with ThreadPoolExecutor(max_workers=min(5, len(queries) + 1)) as executor:
                     future_to_query = {executor.submit(fetch_colpali_data, q, result_count): q for q in queries}
-                    completed_count = 0
+                    completed_colpali_queries = 0
                     for future in as_completed(future_to_query):
                         query = future_to_query[future]
+                        completed_colpali_queries += 1
                         try:
                             papers = future.result()
-                            colpali_results[query] = papers
-                            processed_papers = 0
+                            colpali_results_raw[query] = papers
+                            valid_papers_in_batch = 0
                             for paper in papers:
-                                # Simple validation - check if essential keys exist
-                                if paper.get('page_image') and paper.get('id'):
-                                     if paper['page_image'] not in unique_images:
-                                         all_paper_data.append(paper)
-                                         unique_images.add(paper['page_image'])
-                                         processed_papers += 1
+                                papers_processed_count += 1
+                                # Basic validation
+                                if isinstance(paper, dict) and paper.get('page_image') and paper.get('id'):
+                                    # Add to list if image URL is new
+                                    if paper['page_image'] not in unique_image_urls:
+                                        all_paper_data.append(paper)
+                                        unique_image_urls.add(paper['page_image'])
+                                        valid_papers_in_batch += 1
                                 else:
-                                     st.warning(f"Skipping invalid paper data from query '{query}': {paper}", icon="⚠️")
-                            completed_count += 1
-                            status.update(label=f"📚 Fetched data for query {completed_count}/{len(queries)} ('{query}') - Added {processed_papers} unique items...")
+                                    st.warning(
+                                        f"Skipping invalid/incomplete paper data from query '{query}': {str(paper)[:100]}...",
+                                        icon="⚠️")  # Log snippet
+
+                            status.update(
+                                label=f"📚 Fetching metadata... ({completed_colpali_queries}/{len(queries)} queries processed, found {len(all_paper_data)} unique items so far)")
+
                         except Exception as exc:
-                            st.warning(f"Query '{query}' generated an exception during fetch: {exc}", icon="⚠️")
-                            colpali_results[query] = [] # Mark as failed but continue
-                            completed_count += 1
-                            status.update(label=f"⚠️ Error fetching for query {completed_count}/{len(queries)} ('{query}')...")
+                            st.warning(f"Query '{query}' generated an exception during metadata fetch: {exc}",
+                                       icon="⚠️")
+                            colpali_results_raw[query] = []  # Mark as failed but continue
+                            status.update(
+                                label=f"⚠️ Error fetching metadata for query {completed_colpali_queries}/{len(queries)} ('{query}')...")
 
+                # Check if any valid paper data was found after trying all queries
                 if not all_paper_data:
-                    st.warning("No valid paper data found from Colpali for the generated queries.", icon="ℹ️")
-                    status.update(label="⚠️ No paper data found.", state="complete", expanded=False)
-                    st.stop() # Stop if no data to proceed
+                    st.warning("No valid paper data with images found from Colpali for the generated queries.",
+                               icon="ℹ️")
+                    status.update(label="⚠️ No usable paper metadata found.", state="complete", expanded=False)
+                    # Optional: Display raw results if debugging needed
+                    # with st.expander("Raw Colpali Results (Debug)", expanded=False):
+                    #    st.json(colpali_results_raw)
+                    st.stop()  # Stop if no data to proceed
 
-                status.update(label=f"🖼️ Fetching {len(all_paper_data)} unique images...")
+                # Metadata fetching complete
+                status.update(label=f"✅ Fetched metadata for {len(all_paper_data)} unique paper pages.")
+                st.write(
+                    f"Found {len(all_paper_data)} unique paper pages with images to process.")  # Give user feedback
 
-                # --- Fetch and encode images ---
-                with ThreadPoolExecutor(max_workers=8) as executor: # More workers for I/O bound image fetching
+                # --- Stage 4: Fetch and encode images ---
+                status.update(label=f"🖼️ Fetching and processing {len(all_paper_data)} images...")
+
+                with ThreadPoolExecutor(max_workers=8) as executor:  # More workers for I/O bound image fetching
+                    # Map future back to the paper dictionary
                     future_to_item = {
-                        executor.submit(fetch_and_encode_image, url=item['page_image'], new_height=image_resolution): item
-                        for item in all_paper_data
+                        executor.submit(fetch_and_encode_image, url=item['page_image'],
+                                        new_height=image_resolution): item
+                        for item in all_paper_data  # Iterate through the validated list
                     }
                     completed_images = 0
                     total_images = len(future_to_item)
                     for future in as_completed(future_to_item):
-                        item = future_to_item[future]
-                        try:
-                            img_encoded = future.result()
-                            if img_encoded:
-                                images_data.append((item, img_encoded))
-                        except Exception as exc:
-                            st.warning(f"Failed to fetch or encode image {item.get('page_image', 'N/A')}: {exc}", icon="🖼️")
+                        item_metadata = future_to_item[future]  # Get the associated paper data
                         completed_images += 1
-                        status.update(label=f"🖼️ Fetched {completed_images}/{total_images} images...")
+                        try:
+                            img_encoded = future.result()  # Get the encoded image data (or None if failed)
+                            if img_encoded:
+                                images_data.append((item_metadata, img_encoded))  # Pair metadata with its image
+                            else:
+                                # Handle case where fetch_and_encode_image returned None gracefully
+                                st.warning(
+                                    f"Image encoding/fetching failed for {item_metadata.get('page_image', 'N/A')}, skipping.",
+                                    icon="🖼️")
 
-                status.update(label=f"✅ Fetched {len(images_data)} images successfully.", state="complete", expanded=False)
+                        except Exception as exc:
+                            st.warning(
+                                f"Failed to fetch or encode image {item_metadata.get('page_image', 'N/A')}: {exc}",
+                                icon="🖼️")
+
+                        status.update(
+                            label=f"🖼️ Processing images... ({completed_images}/{total_images} processed, {len(images_data)} successful)")
+
+                # Image fetching complete
+                if not images_data:
+                    st.error(
+                        "No images could be successfully fetched or processed, even though metadata was found. Cannot proceed.",
+                        icon="🖼️")
+                    status.update(label="❌ No images processed.", state="error", expanded=True)
+                    st.stop()
+
+                status.update(label=f"✅ Fetched and processed {len(images_data)} images.", state="complete",
+                              expanded=False)
 
             except Exception as e:
-                 st.error(f"An error occurred during data/image fetching: {e}", icon="❌")
-                 traceback.print_exc()
-                 status.update(label="❌ Error during data fetching", state="error")
-                 st.stop()
+                st.error(f"An error occurred during data/image fetching: {e}", icon="❌")
+                traceback.print_exc()
+                status.update(label="❌ Error during resource fetching", state="error", expanded=True)
+                st.stop()
 
-        if not images_data:
-            st.error("No images could be fetched or processed. Cannot proceed with multimodal generation.", icon="🖼️")
-            st.stop()
-
-        # 4. Prepare Final LLM Request with Context and Images
+        # --- Stage 5: Prepare Final LLM Request ---
         chat = ModelChat(system=system_prompt_template)
         try:
             colpali_template = Template(colpali_prompt_template)
-            for content_dict, image_data in images_data:
-                rendered_colpali_prompt = colpali_template.render(**content_dict)
-                chat.add_user_message(
-                    content=rendered_colpali_prompt,
-                    image=image_data,
-                    media_type='image/png' # Assuming PNG, adjust if needed
-                )
-        except TemplateError as e:
-            st.error(f"Error rendering Colpali context prompt template: {e}", icon="❌")
+            # Now images_data contains (metadata, image_base64) tuples
+            for content_dict, image_base64_data in images_data:
+                try:
+                    rendered_colpali_prompt = colpali_template.render(**content_dict)
+                    chat.add_user_message(
+                        content=rendered_colpali_prompt,
+                        image=image_base64_data,  # Pass the base64 string
+                        media_type='image/png'  # Assuming PNG from fetch_and_encode_image
+                    )
+                except TemplateError as render_e:
+                    st.error(f"Error rendering Colpali context for paper {content_dict.get('id', 'N/A')}: {render_e}",
+                             icon="📝")
+                    # Decide whether to skip this item or stop
+                    st.warning(f"Skipping paper {content_dict.get('id', 'N/A')} due to template error.", icon="⚠️")
+                except Exception as add_msg_e:
+                    st.error(f"Error adding message for paper {content_dict.get('id', 'N/A')}: {add_msg_e}", icon="❌")
+                    st.warning(f"Skipping paper {content_dict.get('id', 'N/A')} due to message error.", icon="⚠️")
+
+
+        except TemplateError as e:  # Catch error during initial template creation
+            st.error(f"Error initializing Colpali context prompt template: {e}", icon="❌")
             st.stop()
         except Exception as e:
-             st.error(f"Error preparing final LLM request: {e}", icon="❌")
-             traceback.print_exc()
-             st.stop()
+            st.error(f"Error preparing final LLM request: {e}", icon="❌")
+            traceback.print_exc()
+            st.stop()
 
-
-        # 5. Generate and Stream Final Response
+        # --- Stage 6: Generate and Stream Final Response ---
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
             full_response = ""
             try:
+                # --- Add Initial Loading/Thinking Indicator ---
+                # Display this immediately before starting the potentially blocking stream call
+                message_placeholder.markdown("⏳ Thinking...")
+
+                # Ensure the client parameters are set correctly before streaming
+                client.llm.temperature = temperature
+                client.llm.top_p = top_p
+                client.llm.max_tokens = max_tokens
+                client.llm.presence_penalty = presence_penalty
+                client.llm.frequency_penalty = frequency_penalty
+                # Ensure repetition_penalty is handled correctly by your client/model if supported
+
+                # --- Initiate Stream Generation (This call might block until the server starts sending data) ---
                 stream = client.llm.stream_generate(chat)
+
+                # --- Process the Stream ---
+                first_chunk = True  # Flag to ensure we overwrite the "Thinking..." message cleanly
                 for chunk in stream:
                     # Adapt based on actual chunk structure of your client library
-                    content_delta = chunk.choices[0].delta.content
+                    content_delta = getattr(getattr(getattr(chunk, 'choices', [None])[0], 'delta', None), 'content',
+                                            None)
+
                     if content_delta:
-                        full_response += content_delta
-                        message_placeholder.markdown(full_response + "▌") # Add cursor effect
-                message_placeholder.markdown(full_response) # Final response
+                        if first_chunk:
+                            full_response = content_delta  # Start with the first piece of content
+                            first_chunk = False
+                        else:
+                            full_response += content_delta  # Append subsequent content
+
+                        message_placeholder.markdown(
+                            full_response + "▌")  # Update placeholder with streaming content + cursor
+
+                # --- Final Cleanup ---
+                # Ensure the final full response is displayed without the cursor
+                if not full_response:  # Handle cases where the stream might be empty or only contain non-content deltas
+                    message_placeholder.markdown("Received an empty response from the model.")
+                    full_response = "Received an empty response from the model."  # Set for history
+                else:
+                    message_placeholder.markdown(full_response)
+
+            except AttributeError as ae:
+                error_message = f"Error accessing stream chunk structure: {ae}. Check MagicLLM response format."
+                st.error(error_message, icon="🧩")
+                traceback.print_exc()
+                full_response = "Sorry, I encountered an error processing the response stream."
+                message_placeholder.markdown(full_response)  # Update placeholder with error
             except Exception as e:
-                 st.error(f"Error during final response generation: {e}", icon="❌")
-                 traceback.print_exc()
-                 full_response = "Sorry, I encountered an error while generating the response."
-                 message_placeholder.markdown(full_response)
+                error_message = f"Error during final response generation: {e}"
+                st.error(error_message, icon="❌")
+                traceback.print_exc()
+                full_response = "Sorry, I encountered an error while generating the response."
+                message_placeholder.markdown(full_response)  # Update placeholder with error
 
-
-        # Add final assistant response to history
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+            # Add final assistant response (or error message) to history
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
 
     except Exception as e:
-        # Catch-all for unexpected errors in the main flow
-        st.error(f"An unexpected error occurred: {e}", icon="🔥")
-        traceback.print_exc() # Log for debugging
+        # Catch-all for unexpected errors in the main flow outside specific handlers
+        st.error(f"An unexpected application error occurred: {e}", icon="🔥")
+        traceback.print_exc()  # Log for debugging
+        # Optionally add an error message to chat history if appropriate
+        if not st.session_state.messages or st.session_state.messages[-1][
+            "role"] == "user":  # Avoid double error messages
+            st.session_state.messages.append(
+                {"role": "assistant", "content": f"Apologies, an unexpected application error occurred: {e}"})

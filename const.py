@@ -145,7 +145,7 @@ These keys help you to dynamically render templates and present paper informatio
 app_description = """
 This demo showcases the capabilities of Colpali for embedding, indexing, and generating retrieval-augmented 
 responses from Arxiv research papers. Enter a topic query, and the system will reformulate your query into 
-3-5 targeted searches using the Colpali index, subsequently generating a concise summary report. 
+1-5 targeted searches using the Colpali index, subsequently generating a concise summary report. 
 Currently, this is a proof-of-concept focusing on single-turn chats, with conversational enhancements planned for the future. 
 The Colpali index is independently maintained.
 """.strip()
