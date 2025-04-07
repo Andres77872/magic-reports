@@ -10,7 +10,8 @@ from const import (prompt_query_build,
                    prompt_system_llm,
                    prompt_colpali_content,
                    helper_prompt_configuration_jinja2,
-                   model_choices)
+                   model_choices,
+                   app_description)
 from utils import fetch_and_encode_image, fetch_colpali_data
 
 st.set_page_config(
@@ -136,13 +137,7 @@ with st.sidebar:
     """)
 
 st.title("💬 Colpali-Arxiv Chat: AI-Powered Retrieval and Reporting")
-st.markdown(
-    "This demo showcases the capabilities of Colpali for embedding, indexing, and generating retrieval-augmented "
-    "responses from Arxiv research papers. Enter a topic query, and the system will reformulate your query into "
-    "3-5 targeted searches using the Colpali index, subsequently generating a concise summary report. "
-    "Currently, this is a proof-of-concept focusing on single-turn chats, with conversational enhancements planned for the future. "
-    "The Colpali index is independently maintained."
-)
+st.markdown(app_description)
 
 st.markdown("## 📝 Prompt Configuration (Jinja2 syntax)")
 
