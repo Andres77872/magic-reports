@@ -43,16 +43,33 @@ def fetch_image(i, new_height: int = 1536):
 
 
 with st.sidebar:
-    openai_api_key = st.text_input("magic-llm API Key", key="chatbot_api_key", type="password")
-    "[Colpali retrieval API](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)"
-    "[View the source code](https://github.com/streamlit/llm-examples/blob/main/Chatbot.py)"
-    "[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/streamlit/llm-examples?quickstart=1)"
+    st.header("🔑 API Configuration")
 
-st.title("💬 Colpali for Arxiv")
-st.caption("A POC for the use of Colpali to embed and index the Arxiv papers, this is a basic demo to make RAG and "
-           "write a simple report about a topic, the topic will be the user query and will be regenerated to "
-           "generate 3-5 queries and search on colpali index, this is a POC and will be improved in the future. "
-           "Only tested for one turn chat not for a conversation. The colpali index maintained by myself.")
+    openai_api_key = st.text_input(
+        "Enter your Magic-LLM API Key (Optional)",
+        key="chatbot_api_key",
+        type="password",
+        help="Provide your Magic-LLM API key here. Used for enhanced response generation."
+    )
+
+    st.markdown("---")
+
+    st.header("📚 Resources")
+
+    st.markdown("""
+    - [🌐 Colpali Retrieval API Documentation](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)
+    - [🤗 Colpali Embedding Model (Hugging Face)](https://huggingface.co/vidore/colpali-v1.3)
+    - [📂 View Source on GitHub](https://github.com/Andres77872/magic-reports)
+    """)
+
+st.title("💬 Colpali-Arxiv Chat: AI-Powered Retrieval and Reporting")
+st.caption(
+    "This demo showcases the capabilities of Colpali for embedding, indexing, and generating retrieval-augmented "
+    "responses from Arxiv research papers. Enter a topic query, and the system will reformulate your query into "
+    "3-5 targeted searches using the Colpali index, subsequently generating a concise summary report. "
+    "Currently, this is a proof-of-concept focusing on single-turn chats, with conversational enhancements planned for the future. "
+    "The Colpali index is independently maintained."
+)
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "How can I help you?"}]
 
@@ -96,7 +113,7 @@ Your task is to:
    - Main topics and intent
    - Specific details or context implied
 
-2. Generate between 1 to 3 concise and varied search queries ONLY IF ADDITIONAL INFORMATION IS REQUIRED. These queries should:
+2. Generate between 1 to 5 concise and varied search queries ONLY IF ADDITIONAL INFORMATION IS REQUIRED. These queries should:
    - Cover different angles of the user's intended question or request.
    - Include relevant synonyms, alternative phrasing, or supplemental context needed to retrieve valuable information for answering the query.
 
