@@ -69,25 +69,38 @@ if prompt:
     chat_query = ModelChat()
     chat_query.add_user_message(prompt_query_build.replace('{prev_chat}', prev_chat_context))
 
-    with st.spinner("Generating related queries..."):
+    with st.spinner("Generating related queries...", show_time=True):
         queries_json = client.llm.generate(chat_query).content.strip().lstrip("```json").rstrip("```")
         queries = json.loads(queries_json)
 
     # fetch paper data
     all_paper_data = []
     unique_images = set()
+
+    progress_text = st.empty()  # placeholder for displaying current query
     progress_bar = st.progress(0)
+
     for idx, query in enumerate(queries):
-        res = requests.post('https://llm.arz.ai/rag/colpali/arxiv', data={'query': query, 'limit': 4}).json()
+        progress_text.markdown(f"🔍 **Processing Query ({idx + 1}/{len(queries)}):** `{query}`")
+
+        # Send request
+        res = requests.post(
+            'https://llm.arz.ai/rag/colpali/arxiv',
+            data={'query': query, 'limit': 4}
+        ).json()
+
         for paper in res.get('data', []):
             if paper['page_image'] not in unique_images:
                 all_paper_data.append(paper)
                 unique_images.add(paper['page_image'])
+
         progress_bar.progress((idx + 1) / len(queries))
+
     progress_bar.empty()
+    progress_text.empty()
 
     images_data = []
-    with st.spinner("Fetching paper images..."):
+    with st.spinner("Fetching paper images...", show_time=True):
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = [executor.submit(fetch_and_encode_image, item['page_image']) for item in all_paper_data]
             for future, item in zip(as_completed(futures), all_paper_data):
@@ -116,17 +129,31 @@ if prompt:
             media_type='image/png'
         )
 
-    # stream response
+    # Stream response with spinner visible while waiting for first token
     with st.chat_message("assistant"):
         placeholder_response = st.empty()
         full_response = ""
-        for chunk in client.llm.stream_generate(chat):
-            if hasattr(chunk, 'choices'):
-                content = chunk.choices[0].delta.content
-                if content:
-                    full_response += content
-                    placeholder_response.markdown(full_response + "▌")
 
+        # Create a container for the spinner
+        spinner_container = st.empty()
+        with spinner_container:
+            with st.spinner("✨ Generating response, please wait..."):
+                response_generator = client.llm.stream_generate(chat)
+                first_token_received = False
+
+                # Iterate through response generator
+                for chunk in response_generator:
+                    if hasattr(chunk, 'choices'):
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            if not first_token_received:
+                                first_token_received = True
+                                spinner_container.empty()  # Remove the spinner when first token arrives
+                            full_response += content
+                            placeholder_response.markdown(full_response + "▌")
+
+        # Finalize full response without cursor
         placeholder_response.markdown(full_response)
 
+    # Update session messages
     st.session_state.messages.append({"role": "assistant", "content": full_response})
