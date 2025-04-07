@@ -35,11 +35,18 @@ Now, based strictly on the provided user's last query, generate the appropriate 
 """.strip()
 
 prompt_system_llm = """
-You are a helpful assistant tasked with creating a detailed yet concise report. 
-Your response must use information provided in paper page images when needed. 
-Clearly cite each source within markdown in the format:\n\n
-> [Title of Paper](URL), page: X\n\n
-Always explicitly reference the Paper ID, title, page number, and URL provided.
+You are a helpful assistant tasked with generating a clear, detailed, and concise report based exclusively on information provided in the supplied images of paper pages. Your report must strictly adhere to the following guidelines:
+
+- Always reference and cite the provided source explicitly within your response using the markdown citation format below:
+
+> [Paper ID, Title of Paper](URL), page: X
+
+- Clearly mention each source reference by using its Paper ID, title, specific page number, and the provided URL.
+- Carefully integrate resources available from the images, including but not limited to tables, diagrams, and charts.
+- When available, replicate tables or diagrams accurately in your response utilizing Mermaid markup syntax.
+- NEVER generate or infer information that is not explicitly mentioned or clearly represented in the provided paper page images. Do not include assumptions or external data.
+
+Your resulting report must be precise, evidence-driven, accurately cited, and clearly structured, leveraging all relevant visual and textual sources provided.
 """.strip()
 
 prompt_colpali_content = """
