@@ -1,7 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import requests
 import streamlit as st
 from jinja2 import Template
 from magic_llm import MagicLLM
@@ -12,7 +11,7 @@ from const import (prompt_query_build,
                    prompt_colpali_content,
                    helper_prompt_configuration_jinja2,
                    model_choices)
-from utils import fetch_and_encode_image
+from utils import fetch_and_encode_image, fetch_colpali_data
 
 st.set_page_config(
     page_title="Colpali-Arxiv AI Chatbot",
@@ -133,9 +132,7 @@ with st.sidebar:
     st.markdown("""
     🌐 [Colpali Retrieval API](https://llm.arz.ai/docs#/data%20sources/colpali_rag_colpali_arxiv_post)  
 
-    🤗 [Embedding Model](https://huggingface.co/vidore/colpali-v1.3)  
-
-    📂 [View Source Code](https://github.com/Andres77872/magic-reports)
+    🤗 [Embedding Model](https://huggingface.co/vidore/colpali-v1.3)
     """)
 
 st.title("💬 Colpali-Arxiv Chat: AI-Powered Retrieval and Reporting")
@@ -234,44 +231,62 @@ if prompt:
         queries_json = client.llm.generate(chat_query).content.strip().lstrip("```json").rstrip("```")
         queries = json.loads(queries_json)
 
-    # fetch paper data
+    # fetch paper data in parallel
     all_paper_data = []
     unique_images = set()
 
-    progress_text = st.empty()  # placeholder for displaying current query
+    queries_progress_text = st.empty()
     progress_bar = st.progress(0)
 
-    for idx, query in enumerate(queries):
-        progress_text.markdown(f"🔍 **Processing Query ({idx + 1}/{len(queries)}):** `{query}`")
-
-        # Send request
-        res = requests.post(
-            'https://llm.arz.ai/rag/colpali/arxiv',
-            data={'query': query, 'limit': result_count}
-        ).json()
-
-        for paper in res.get('data', []):
-            if paper['page_image'] not in unique_images:
-                all_paper_data.append(paper)
-                unique_images.add(paper['page_image'])
-
-        progress_bar.progress((idx + 1) / len(queries))
+    with ThreadPoolExecutor(max_workers=min(3, len(queries))) as executor:
+        futures = {executor.submit(fetch_colpali_data, q, result_count): q for q in queries}
+        for idx, future in enumerate(as_completed(futures)):
+            query = futures[future]
+            queries_progress_text.markdown(f"🔍 **Completed Query ({idx + 1}/{len(queries)}):** `{query}`")
+            papers = future.result()
+            for paper in papers:
+                if paper['page_image'] not in unique_images:
+                    all_paper_data.append(paper)
+                    unique_images.add(paper['page_image'])
+            progress_bar.progress((idx + 1) / len(queries))
 
     progress_bar.empty()
-    progress_text.empty()
+    queries_progress_text.empty()
 
+    # Display an expander with all queries for easy reference
+    with st.expander("🔎 **Generated Colpali Queries**", expanded=False):
+        for idx, q in enumerate(queries, 1):
+            st.markdown(f"- **Query {idx}:** `{q}`")
+
+    # Load images with progress bar
     images_data = []
-    with st.spinner("Fetching paper images...", show_time=True):
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [
-                executor.submit(fetch_and_encode_image, url=item['page_image'], new_height=image_resolution)
-                for item in all_paper_data
-            ]
-            for future, item in zip(as_completed(futures), all_paper_data):
-                img_encoded = future.result()
-                if img_encoded:
-                    images_data.append((item, img_encoded))
+    progress_bar = st.progress(0)
+    progress_status = st.empty()
 
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(fetch_and_encode_image, url=item['page_image'], new_height=image_resolution): item
+            for item in all_paper_data
+        }
+
+        total_images = len(futures)
+        completed_images = 0
+
+        for future in as_completed(futures):
+            item = futures[future]
+            img_encoded = future.result()
+            if img_encoded:
+                images_data.append((item, img_encoded))
+
+            completed_images += 1
+            progress_percentage = completed_images / total_images
+            progress_bar.progress(progress_percentage)
+            progress_status.markdown(f"🖼️ Fetching images... ({completed_images}/{total_images})")
+
+    progress_bar.empty()
+    progress_status.empty()
+
+    # Prepare messages
     chat = ModelChat(system=system_prompt_template)
 
     for content_dict, image_data in images_data:
