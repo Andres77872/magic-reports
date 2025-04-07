@@ -7,7 +7,6 @@ import streamlit as st
 from jinja2 import Template, TemplateError
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
-from magic_llm.model.ModelChatStream import UsageModel, ChatMetaModel
 
 from const import (prompt_query_build,
                    prompt_system_llm,
@@ -24,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
     menu_items={
         'Get Help': 'https://llm.arz.ai/docs',
-        'Report a bug': "mailto:support@example.com",
+        'Report a bug': "mailto:andres@arz.ai",
         'About': f"## Colpali-Arxiv AI Chatbot\n{app_description}"
     }
 )
@@ -38,12 +37,15 @@ if "sources_used" not in st.session_state:
     st.session_state.sources_used = []
 
 with st.sidebar:
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        st.markdown("🤖")
-    with col2:
-        st.markdown("## Colpali Chat")
-        st.caption("AI Assistant for Arxiv")
+    # col1, col2 = st.columns([1, 3])
+    # with col1:
+    #     st.markdown("🤖")
+    # with col2:
+    #     st.markdown("## Colpali Chat")
+    #     st.caption("AI Assistant for Arxiv")
+
+    st.markdown("# Colpali Chat")
+    st.caption("AI Assistant for Arxiv")
 
     st.divider()
 
@@ -71,11 +73,11 @@ with st.sidebar:
     with st.expander("🛠️ Advanced Settings"):
         st.markdown("##### LLM Generation Parameters")
         temperature = st.slider(
-            "🌡️ Temperature", 0.0, 2.0, 1.0, 0.01,
+            "🌡️ Temperature", 0.0, 2.0, 0.75, 0.01,
             help="Controls randomness (0=deterministic, 2=very random)."
         )
         top_p = st.slider(
-            "🎯 Top-P", 0.0, 1.0, 1.0, 0.01,
+            "🎯 Top-P", 0.0, 1.0, 0.95, 0.01,
             help="Nucleus sampling threshold (1=consider all)."
         )
         max_tokens = st.number_input(
@@ -188,27 +190,19 @@ if prompt := st.chat_input("What's your question about Arxiv papers?"):
     st.chat_message("user").markdown(prompt)
 
     try:
-        def callback(msg: ModelChat,
-                     content: str,
-                     usage: UsageModel,
-                     model: str,
-                     meta: ChatMetaModel):
-            pass
-
         # --- Stage 1: Initialize LLM Client ---
         client = MagicLLM(
             engine='openai',
             model=model_choices[selected_model],
             private_key=openai_api_key if openai_api_key else None,
             base_url='https://llm.arz.ai',
-            callback=callback,
             temperature=temperature,
             top_p=top_p,
             max_tokens=max_tokens,
             presence_penalty=presence_penalty,
             frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
         )
-        # client.llm.set_extra_param("repetition_penalty", repetition_penalty) # Example if needed
 
         thinking_placeholder = st.chat_message("assistant").empty()
         thinking_placeholder.markdown("🤔 Thinking...")
