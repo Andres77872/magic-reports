@@ -151,6 +151,7 @@ The Colpali index is independently maintained.
 """.strip()
 
 model_choices = {
+    "quasar-alpha": "@05/openrouter/quasar-alpha",
     "Gemini 2.0 Flash": "@05/google/gemini-2.0-flash-001",
     "Llama 4 Maverick Instruct": "@10/accounts/fireworks/models/llama4-maverick-instruct-basic",
     "Llama 4 Scout Instruct": "@10/accounts/fireworks/models/llama4-scout-instruct-basic",

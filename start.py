@@ -31,10 +31,15 @@ st.set_page_config(
 DEFAULT_MODEL_KEY = list(model_choices.keys())[0]
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant",
-                                  "content": "Hello! Ask me about Arxiv papers, and I'll try to find relevant information using Colpali."}]
+    st.session_state.messages = []
 if "sources_used" not in st.session_state:
     st.session_state.sources_used = []
+
+if "new_user_input" not in st.session_state:
+    st.session_state.new_user_input = False
+
+if "regen_trigger" not in st.session_state:
+    st.session_state.regen_trigger = False
 
 with st.sidebar:
     # col1, col2 = st.columns([1, 3])
@@ -49,7 +54,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown("#### 🔑 API Credentials")
+    st.markdown("### 🔑 API Credentials")
     openai_api_key = st.text_input(
         "Magic-LLM API Key (optional)",
         type="password",
@@ -61,7 +66,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.markdown("#### ⚙️ Core Configuration")
+    st.markdown("### ⚙️ Core Configuration")
     selected_model = st.selectbox(
         "🤖 Select Model",
         list(model_choices.keys()),
@@ -180,14 +185,36 @@ for i, msg in enumerate(st.session_state.messages):
 
             st.caption("Sources are based on the retrieved Colpali data.")
 
-if "new_user_input" not in st.session_state:
-    st.session_state.new_user_input = False
+regen_button_holder = st.empty()
+
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
+    if regen_button_holder.button("🔄 Regenerate response"):
+        st.session_state.regen_trigger = True
+        last_user_idx = None
+        for idx in range(len(st.session_state.messages) - 2, -1, -1):
+            if st.session_state.messages[idx]["role"] == "user":
+                last_user_idx = idx
+                break
+        if last_user_idx is not None:
+            st.session_state.messages = st.session_state.messages[:last_user_idx + 1]
+            st.session_state.new_user_input = True
+            st.rerun()
 
 if prompt := st.chat_input("What's your question about Arxiv papers?"):
     st.session_state.new_user_input = True
     st.session_state.sources_used = []
     st.session_state.messages.append({"role": "user", "content": prompt})
+
+if prompt:
     st.chat_message("user").markdown(prompt)
+
+if (
+        (st.session_state.get("new_user_input", False))
+        and
+        (st.session_state.messages and st.session_state.messages[-1]["role"] == "user")
+):
+
+    prompt = st.session_state.messages[-1]["content"]
 
     try:
         # --- Stage 1: Initialize LLM Client ---
@@ -491,6 +518,7 @@ if prompt := st.chat_input("What's your question about Arxiv papers?"):
         st.session_state.messages.append({"role": "assistant", "content": full_response})
 
         st.session_state.new_user_input = False
+        st.session_state.regen_trigger = False
         time.sleep(0.1)
         st.rerun()
 
@@ -506,6 +534,7 @@ if prompt := st.chat_input("What's your question about Arxiv papers?"):
             st.session_state.messages.append(
                 {"role": "assistant", "content": f"Apologies, an unexpected error occurred: {e}"})
         st.session_state.new_user_input = False
+        st.session_state.regen_trigger = False
 
 if "new_user_input" in st.session_state and not st.session_state.new_user_input:
     pass
