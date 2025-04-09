@@ -155,45 +155,64 @@ st.title("💬 Colpali-Arxiv Chat")
 st.markdown(app_description)
 st.divider()
 
-for i, msg in enumerate(st.session_state.messages):
-    st.chat_message(msg["role"]).markdown(msg["content"])
-    if msg["role"] == "assistant" and i == len(st.session_state.messages) - 1 and st.session_state.sources_used:
-        with st.expander("📚 Sources Used", expanded=False):
-            for source in st.session_state.sources_used:
-                title = source.get('title', 'N/A')
-                page = source.get('page', 'N/A')
-                arxiv_id = source.get('id', None)
-                url = source.get('url', '#')
+for idx, msg in enumerate(st.session_state.messages):
+    role = msg["role"]
+    content = msg["content"]
 
-                display_text = f"**{title}** (Page: {page})"
-                if arxiv_id:
-                    display_text += f" - Arxiv: [{arxiv_id}](https://arxiv.org/abs/{arxiv_id})"
+    # Display chat bubbles
+    st.chat_message(role).markdown(content)
 
-                img_url = source.get('page_image', None)
-                if img_url:
-                    col1, col2 = st.columns([4, 1])
+    # Only show sources after the last assistant message
+    is_last_assistant = (
+            role == "assistant" and idx == len(st.session_state.messages) - 1
+    )
+
+    row1, row2 = st.columns([1, 1])
+
+    with row1:
+        if is_last_assistant and st.session_state.sources_used:
+            with st.expander("### 📚 **Sources Used**", expanded=False):
+                for src in st.session_state.sources_used:
+                    title = src.get("title", "Untitled")
+                    page = src.get("page", "N/A")
+                    arxiv_id = src.get("id")
+                    page_image = src.get("page_image", None)
+
+                    # Compose display text with title, page, and Arxiv link
+                    info_text = f"**{title}**  \n_Page: {page}_"
+                    if arxiv_id:
+                        info_text += f"  \n[ArXiv:{arxiv_id}](https://arxiv.org/abs/{arxiv_id})"
+
+                    # Layout: Text with optional thumbnail
+                    if page_image and page_image.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                        col_text, col_img = st.columns([5, 1])
+                        with col_text:
+                            st.markdown(info_text, unsafe_allow_html=True)
+                        with col_img:
+                            st.image(page_image, width=80, caption="", use_container_width=False)
+                    else:
+                        st.markdown(info_text, unsafe_allow_html=True)
+
+                st.caption("🔗 These sources were retrieved from the Colpali database and used as context.")
+    with row2:
+        if is_last_assistant and st.session_state.last_usage is not None:
+            usage = st.session_state.last_usage.usage
+            with st.expander("📊 **Token Usage Details**", expanded=False):
+                st.caption("Breakdown of tokens consumed and timing stats during LLM generation:")
+                rows = [
+                    ("🔢 Prompt tokens", usage.prompt_tokens),
+                    ("📝 Completion tokens", usage.completion_tokens),
+                    ("🧮 Total tokens", usage.total_tokens),
+                    ("⏱️ Time To First Token (s)", f"{usage.ttft:.2f}"),
+                    ("🏁 Total Time Finish (s)", f"{usage.ttf:.2f}"),
+                    ("⚡ Tokens/sec", f"{usage.tps:.2f}"),
+                ]
+                for label, value in rows:
+                    col1, col2 = st.columns([2, 1])
                     with col1:
-                        st.markdown(f"- {display_text}", unsafe_allow_html=True)
+                        st.markdown(f"**{label}**")
                     with col2:
-                        if img_url.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-                            st.image(img_url, width=80, caption="Source Page")
-                else:
-                    st.markdown(f"- {display_text}")
-
-            st.caption("Sources are based on the retrieved Colpali data.")
-
-# --- Display usage info if available ---
-if st.session_state.last_usage:
-    usage = st.session_state.last_usage.usage
-    with st.expander("📊 Token Usage Details", expanded=False):
-        st.markdown(
-            f"- **Prompt tokens**: {usage.prompt_tokens}\n"
-            f"- **Completion tokens**: {usage.completion_tokens}\n"
-            f"- **Total tokens**: {usage.total_tokens}\n"
-            f"- **TTFT (s)**: {usage.ttft:2f}\n"
-            f"- **TTF (s)**: {usage.ttf:2f}\n"
-            f"- **Tokens/sec (TPS)**: {usage.tps:2f}\n"
-        )
+                        st.code(str(value))
 
 regen_button_holder = st.empty()
 
