@@ -154,7 +154,7 @@ model_choices = {
     "Gemini 2.0 Flash": "@05/google/gemini-2.0-flash-001",
     "Llama 4 Maverick Instruct": "@10/accounts/fireworks/models/llama4-maverick-instruct-basic",
     "Llama 4 Scout Instruct": "@10/accounts/fireworks/models/llama4-scout-instruct-basic",
-    "Qwen2.5-VL 72B Instruct": "@19/Qwen/Qwen2-VL-72B-Instruct",
+    "Qwen2.5-VL 72B Instruct": "@19/Qwen/Qwen2.5-VL-72B-Instruct",
     "Llama 3.2 11B Vision Instruct Turbo": "@03/meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo",
     "quasar-alpha": "@05/openrouter/quasar-alpha",
 }
