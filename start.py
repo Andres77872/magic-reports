@@ -8,12 +8,14 @@ from jinja2 import Template, TemplateError
 from magic_llm import MagicLLM
 from magic_llm.model import ModelChat
 
-from const import (prompt_query_build,
-                   prompt_system_llm,
-                   prompt_colpali_content,
-                   helper_prompt_configuration_jinja2,
-                   model_choices,
-                   app_description)
+from const import (
+    prompt_query_build,
+    prompt_system_llm,
+    prompt_colpali_content,
+    helper_prompt_configuration_jinja2,
+    model_choices,
+    app_description
+)
 from utils import fetch_and_encode_image, fetch_colpali_data
 
 st.set_page_config(
@@ -34,6 +36,8 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "sources_used" not in st.session_state:
     st.session_state.sources_used = []
+if "last_usage" not in st.session_state:
+    st.session_state.last_usage = None
 
 if "new_user_input" not in st.session_state:
     st.session_state.new_user_input = False
@@ -42,13 +46,6 @@ if "regen_trigger" not in st.session_state:
     st.session_state.regen_trigger = False
 
 with st.sidebar:
-    # col1, col2 = st.columns([1, 3])
-    # with col1:
-    #     st.markdown("🤖")
-    # with col2:
-    #     st.markdown("## Colpali Chat")
-    #     st.caption("AI Assistant for Arxiv")
-
     st.markdown("# Colpali Chat")
     st.caption("AI Assistant for Arxiv")
 
@@ -185,6 +182,19 @@ for i, msg in enumerate(st.session_state.messages):
 
             st.caption("Sources are based on the retrieved Colpali data.")
 
+# --- Display usage info if available ---
+if st.session_state.last_usage:
+    usage = st.session_state.last_usage.usage
+    with st.expander("📊 Token Usage Details", expanded=False):
+        st.markdown(
+            f"- **Prompt tokens**: {usage.prompt_tokens}\n"
+            f"- **Completion tokens**: {usage.completion_tokens}\n"
+            f"- **Total tokens**: {usage.total_tokens}\n"
+            f"- **TTFT (s)**: {usage.ttft:2f}\n"
+            f"- **TTF (s)**: {usage.ttf:2f}\n"
+            f"- **Tokens/sec (TPS)**: {usage.tps:2f}\n"
+        )
+
 regen_button_holder = st.empty()
 
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant":
@@ -236,8 +246,8 @@ if (
 
         # --- Stage 2: Prepare Context and Generate Search Queries ---
         prev_chat_context = "\n".join(
-            [f"{m['role']}: {m['content']}" for m in
-             st.session_state.messages[-8:]])
+            [f"{m['role']}: {m['content']}" for m in st.session_state.messages[-8:]]
+        )
 
         chat_query = ModelChat()
         queries = []
@@ -285,9 +295,11 @@ if (
         if not queries:
             st.warning("The LLM didn't generate any search queries based on your input.", icon="🤷")
             thinking_placeholder.markdown(
-                "I couldn't determine relevant search terms from your request. Could you please rephrase?")
+                "I couldn't determine relevant search terms from your request. Could you please rephrase?"
+            )
             st.session_state.messages.append(
-                {"role": "assistant", "content": "I couldn't determine relevant search terms. Please rephrase."})
+                {"role": "assistant", "content": "I couldn't determine relevant search terms. Please rephrase."}
+            )
             st.stop()
 
         with st.expander(f"🔍 Using {len(queries)} Colpali Queries", expanded=False):
@@ -310,14 +322,14 @@ if (
                 with ThreadPoolExecutor(max_workers=min(8, len(queries) + 1)) as executor:
                     future_to_query = {executor.submit(fetch_colpali_data, q, result_count): q for q in queries}
                     completed_colpali_queries = 0
-                    total_papers_found = 0
 
                     for future in as_completed(future_to_query):
                         query = future_to_query[future]
                         completed_colpali_queries += 1
                         progress = completed_colpali_queries / len(queries)
                         status.update(
-                            label=f"📚 Fetching metadata... Query {completed_colpali_queries}/{len(queries)} ('{query[:30]}...')")
+                            label=f"📚 Fetching metadata... Query {completed_colpali_queries}/{len(queries)} ('{query[:30]}...')"
+                        )
 
                         try:
                             papers = future.result()
@@ -330,8 +342,6 @@ if (
                                     if img_url not in unique_image_urls:
                                         all_paper_data.append(paper)
                                         unique_image_urls.add(img_url)
-                                        valid_papers_in_batch += 1
-                                        total_papers_found += 1
 
                         except Exception as exc:
                             warning_msg = f"Query '{query}' failed during metadata fetch: {exc}"
@@ -355,9 +365,11 @@ if (
 
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     future_to_item = {
-                        executor.submit(fetch_and_encode_image, url=item['page_image'],
-                                        new_height=image_resolution): item
-                        for item in all_paper_data
+                        executor.submit(
+                            fetch_and_encode_image,
+                            url=item['page_image'],
+                            new_height=image_resolution
+                        ): item for item in all_paper_data
                     }
                     completed_images = 0
                     for future in as_completed(future_to_item):
@@ -380,18 +392,23 @@ if (
                             fetch_errors.append(warning_msg)
 
                 if not images_data:
-                    st.error("Could not fetch or process any images for the found papers. Cannot generate response.",
-                             icon="🖼️")
+                    st.error(
+                        "Could not fetch or process any images for the found papers. Cannot generate response.",
+                        icon="🖼️"
+                    )
                     status.update(label="❌ No images processed.", state="error", expanded=True)
                     thinking_placeholder.markdown(
-                        "Sorry, I found papers but couldn't load their images to understand the content.")
+                        "Sorry, I found papers but couldn't load their images to understand the content."
+                    )
                     st.session_state.messages.append({"role": "assistant", "content": "Error loading paper images."})
                     st.stop()
 
                 st.session_state.sources_used = [item_data for item_data, _ in images_data]
 
-                status.update(label=f"✅ Processed {len(images_data)} images. Preparing final answer...",
-                              state="complete", expanded=False)
+                status.update(
+                    label=f"✅ Processed {len(images_data)} images. Preparing final answer...",
+                    state="complete", expanded=False
+                )
                 time.sleep(0.5)
 
             except Exception as e:
@@ -403,8 +420,7 @@ if (
                 st.stop()
 
         # --- Stage 5: Prepare Final LLM Request ---
-        thinking_placeholder.markdown(
-            "📝 Preparing final response using retrieved context...")
+        thinking_placeholder.markdown("📝 Preparing final response using retrieved context...")
         final_chat = ModelChat()
 
         try:
@@ -439,11 +455,13 @@ if (
                 except TemplateError as render_e:
                     st.warning(
                         f"Skipping paper {content_dict.get('id', 'N/A')} due to template render error: {render_e}",
-                        icon="📝")
+                        icon="📝"
+                    )
                 except Exception as add_msg_e:
                     st.warning(
                         f"Skipping paper {content_dict.get('id', 'N/A')} due to message adding error: {add_msg_e}",
-                        icon="🧩")
+                        icon="🧩"
+                    )
 
             if context_added_count == 0 and len(images_data) > 0:
                 st.error("Failed to prepare context from any of the fetched papers.", icon="❌")
@@ -476,9 +494,11 @@ if (
 
             first_chunk = True
             for chunk in stream:
+                if chunk is not None:
+                    st.session_state.last_usage = chunk
                 content_delta = None
                 try:
-                    if chunk.choices and len(chunk.choices) > 0:
+                    if chunk and chunk.choices and len(chunk.choices) > 0:
                         delta = chunk.choices[0].delta
                         if delta:
                             content_delta = delta.content
@@ -532,7 +552,8 @@ if (
 
         if not st.session_state.messages or st.session_state.messages[-1]["role"] == "user":
             st.session_state.messages.append(
-                {"role": "assistant", "content": f"Apologies, an unexpected error occurred: {e}"})
+                {"role": "assistant", "content": f"Apologies, an unexpected error occurred: {e}"}
+            )
         st.session_state.new_user_input = False
         st.session_state.regen_trigger = False
 
